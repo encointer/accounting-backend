@@ -1,0 +1,26 @@
+{
+  "name": "accounting-backend",
+  "version": "1.0.0",
+  "description": "Backend for the Encointer Accounting Dashboard",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "pifragile",
+  "license": "ISC",
+  "dependencies": {
+    "@encointer/types": "^0.9.0-alpha.3",
+    "@encointer/util": "^0.9.0-alpha.3",
+    "@encointer/worker-api": "^0.9.0-alpha.3",
+    "@polkadot/api": "^9.5.1",
+    "bn.js": "^5.2.1",
+    "body-parser": "^1.20.1",
+    "bs58": "^5.0.0",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.0"
+  }
+}
