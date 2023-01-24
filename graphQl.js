@@ -69,8 +69,10 @@ export async function gatherTransactionData(start, end, address, cid) {
 
     const sumIncoming = incoming.reduce((acc, cur) => acc + cur.arg3, 0);
     const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.arg3, 0);
-    const difference = sumIncoming + sumIssues - sumOutgoing;
-    return [incoming, outgoing, issues, difference];
+    const incomeMinusExpenses = sumIncoming - sumOutgoing;
+
+    const numDistinctClients = new Set(incoming.map(e => e.arg1)).size
+    return [incoming, outgoing, issues, incomeMinusExpenses, sumIssues, numDistinctClients];
 }
 
 export function generateTxnLog(incoming, outgoing, issues) {

@@ -105,7 +105,7 @@ export async function getAccountingData(api, account, cid, year, month) {
     const lastBlockOfMonth = await getLastBlockOfMonth(api, year, month);
     const lastBlockOfPreviousMonth = await getLastBlockOfMonth(api, year, month - 1);
 
-    const [incoming, outgoing, issues, difference] =
+    const [incoming, outgoing, issues, incomeMinusExpenses, sumIssues, numDistinctClients] =
         await gatherTransactionData(start, end, account, cid);
 
     const txnLog = generateTxnLog(incoming, outgoing, issues);
@@ -125,9 +125,14 @@ export async function getAccountingData(api, account, cid, year, month) {
 
     return {
         month,
-        incomeMinusExpenses: difference,
+        incomeMinusExpenses,
+        sumIssues,
         balance,
-        costDemurrage: previousBalance + difference - balance,
+        numIncoming: incoming.length,
+        numOutgoing: outgoing.length,
+        numIssues: issues.length,
+        numDistinctClients,
+        costDemurrage: previousBalance + incomeMinusExpenses + sumIssues - balance,
         txnLog
     };
 }
