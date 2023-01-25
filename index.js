@@ -3,6 +3,8 @@ const encointer_rpc_endpoint = "wss://kusama.api.encointer.org";
 import typesBundle from "./typesBundle.js";
 import { getAccountingData, validateAccountToken } from "./util.js";
 import express from "express";
+import cors from "cors";
+import { ACCOUNTS, CIDS } from "./consts.js";
 
 const DATA_CACHE = {};
 
@@ -31,6 +33,7 @@ async function main() {
     });
 
     const app = express();
+    app.use(cors());
 
     app.get("/get-accounting-data", async function (req, res, next) {
         try {
@@ -64,7 +67,14 @@ async function main() {
                 }
             }
             data.push(await getAccountingData(api, account, cid, year, month));
-            res.send(JSON.stringify(data));
+            res.send(
+                JSON.stringify({
+                    data,
+                    communityName: CIDS[cid].name,
+                    name: ACCOUNTS[account].name,
+                    year,
+                })
+            );
         } catch (e) {
             next(e);
         }

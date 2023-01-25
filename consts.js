@@ -28,5 +28,5 @@ export const ACCOUNTS = {
 };
 
 export const CIDS = {
-    "u0qj944rhWE": { geohash: "u0qj9", digest: "0x77f79df7" },
+    "u0qj944rhWE": { geohash: "u0qj9", digest: "0x77f79df7", name: "LEU Zürich"},
 };
