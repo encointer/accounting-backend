@@ -9,7 +9,7 @@ async function getBlockTimestamp(api, blockNumber) {
     return api.query.timestamp.now.at(blockHash);
 }
 // perform a binary search over all blocks to find the closest block below the timestamp
-async function getBlockNumber(api, timestamp) {
+export async function getBlockNumber(api, timestamp) {
     const currentBlockNumber = (
         await api.rpc.chain.getBlock()
     ).block.header.number.toNumber();
@@ -26,7 +26,6 @@ async function getBlockNumber(api, timestamp) {
 }
 
 async function getBalance(api, cid, address, at) {
-
     const balanceEntry = await api.query.encointerBalances.balance.at(
         at,
         cid,
@@ -38,7 +37,7 @@ async function getBalance(api, cid, address, at) {
     };
 }
 
-async function getDemurragePerBlock(api, cid, at) {
+export async function getDemurragePerBlock(api, cid, at) {
     const demurragePerBlock =
         await api.query.encointerBalances.demurragePerBlock.at(at, cid);
     return parseEncointerBalance(demurragePerBlock.bits);
@@ -73,7 +72,7 @@ export async function getLastBlockOfMonth(api, year, monthIndex) {
     return blockNumber;
 }
 
-function applyDemurrage(principal, elapsedBlocks, demurragePerBlock) {
+export function applyDemurrage(principal, elapsedBlocks, demurragePerBlock) {
     return principal * Math.exp(-demurragePerBlock * elapsedBlocks);
 }
 
@@ -103,10 +102,20 @@ export async function getAccountingData(api, account, cid, year, month) {
     const start = getFirstTimeStampOfMonth(year, month);
     const end = getLastTimeStampOfMonth(year, month);
     const lastBlockOfMonth = await getLastBlockOfMonth(api, year, month);
-    const lastBlockOfPreviousMonth = await getLastBlockOfMonth(api, year, month - 1);
+    const lastBlockOfPreviousMonth = await getLastBlockOfMonth(
+        api,
+        year,
+        month - 1
+    );
 
-    const [incoming, outgoing, issues, incomeMinusExpenses, sumIssues, numDistinctClients] =
-        await gatherTransactionData(start, end, account, cid);
+    const [
+        incoming,
+        outgoing,
+        issues,
+        incomeMinusExpenses,
+        sumIssues,
+        numDistinctClients,
+    ] = await gatherTransactionData(start, end, account, cid);
 
     const txnLog = generateTxnLog(incoming, outgoing, issues);
 
@@ -132,7 +141,8 @@ export async function getAccountingData(api, account, cid, year, month) {
         numOutgoing: outgoing.length,
         numIssues: issues.length,
         numDistinctClients,
-        costDemurrage: previousBalance + incomeMinusExpenses + sumIssues - balance,
-        txnLog
+        costDemurrage:
+            previousBalance + incomeMinusExpenses + sumIssues - balance,
+        txnLog,
     };
 }

@@ -1,10 +1,18 @@
 import { ApiPromise, WsProvider } from "@polkadot/api";
 const encointer_rpc_endpoint = "wss://kusama.api.encointer.org";
 import typesBundle from "./typesBundle.js";
-import { getAccountingData, validateAccountToken } from "./util.js";
+import {
+    applyDemurrage,
+    getAccountingData,
+    getBlockNumber,
+    getDemurragePerBlock,
+    getLastBlockOfMonth,
+    validateAccountToken,
+} from "./util.js";
 import express from "express";
 import cors from "cors";
 import { ACCOUNTS, CIDS } from "./consts.js";
+import { parseEncointerBalance } from "@encointer/types";
 
 const DATA_CACHE = {};
 
@@ -75,6 +83,38 @@ async function main() {
                     year,
                 })
             );
+        } catch (e) {
+            next(e);
+        }
+    });
+
+    app.get("/get-account-overview", async function (req, res, next) {
+        try {
+            const timestamp = req.query.timestamp;
+            const cid = CIDS[req.query.cid].cidDecoded;
+            const blockNumber = 2143252; //await getBlockNumber(api, timestamp);
+            const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
+            const apiAt = await api.at(blockHash);
+            let entries = (
+                await apiAt.query.encointerBalances.balance.entries()
+            ).map((e) => ({ key: e[0].toHuman(), value: e[1] }));
+            const demurragePerBlock = await getDemurragePerBlock(
+                api,
+                cid,
+                blockHash
+            );
+
+            entries = entries
+                .filter((e) => JSON.stringify(e.key[0]) === JSON.stringify(cid))
+                .map((e) => ({
+                    account: e.key[1],
+                    balance: applyDemurrage(
+                        parseEncointerBalance(e.value.principal.bits),
+                        blockNumber - e.value.lastUpdate.toNumber(),
+                        demurragePerBlock
+                    ),
+                }));
+            res.send(JSON.stringify(entries));
         } catch (e) {
             next(e);
         }

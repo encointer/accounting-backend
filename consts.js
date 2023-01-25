@@ -1,5 +1,5 @@
-import * as dotenv from 'dotenv';
-dotenv.config()
+import * as dotenv from "dotenv";
+dotenv.config();
 
 export const INDEXER_ENDPOINT = "http://localhost:3000";
 
@@ -28,5 +28,8 @@ export const ACCOUNTS = {
 };
 
 export const CIDS = {
-    "u0qj944rhWE": { geohash: "u0qj9", digest: "0x77f79df7", name: "LEU Zürich"},
+    u0qj944rhWE: {
+        cidDecoded: { geohash: "u0qj9", digest: "0x77f79df7" },
+        name: "LEU Zürich",
+    },
 };
