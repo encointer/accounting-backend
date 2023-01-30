@@ -43,6 +43,18 @@ async function main() {
     const app = express();
     app.use(cors());
 
+    app.use(function (req, res, next) {
+        console.log("Received new request:", req.url);
+        var send = res.send;
+        res.send = function (body) {
+            console.log(
+                `Sending response for: ${req.url} with status ${this.statusCode}`
+            );
+            send.call(this, body);
+        };
+        next();
+    });
+
     app.get("/get-accounting-data", async function (req, res, next) {
         try {
             const account = req.query.account;
@@ -116,13 +128,14 @@ async function main() {
                         demurragePerBlock
                     ),
                 }));
-            res.send(JSON.stringify({data: entries, communityName}));
+            res.send(JSON.stringify({ data: entries, communityName }));
         } catch (e) {
             next(e);
         }
     });
 
     app.listen(8081);
+    console.log("App started!");
 }
 
 main().catch(console.error);
