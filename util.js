@@ -81,17 +81,17 @@ async function getDemurrageAdjustedBalance(api, address, cid, blockNumber) {
     const cidDecoded = CIDS[cid];
     let balanceEntry = await getBalance(api, cidDecoded, address, blockHash);
 
-    const demurragePerBlock = await getDemurragePerBlock(api, cidDecoded, blockHash);
+    const demurragePerBlock = await getDemurragePerBlock(
+        api,
+        cidDecoded,
+        blockHash
+    );
     const balance = applyDemurrage(
         balanceEntry.principal,
         blockNumber - balanceEntry.lastUpdate,
         demurragePerBlock
     );
     return balance;
-}
-
-function getDateString(timestamp) {
-    return new Date(parseInt(timestamp)).toUTCString().replace(",", "");
 }
 
 export function validateAccountToken(account, token) {
