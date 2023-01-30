@@ -91,8 +91,10 @@ async function main() {
     app.get("/get-account-overview", async function (req, res, next) {
         try {
             const timestamp = req.query.timestamp;
-            const cid = CIDS[req.query.cid].cidDecoded;
-            const blockNumber = 2143252; //await getBlockNumber(api, timestamp);
+            const cidData = CIDS[req.query.cid];
+            const cid = cidData.cidDecoded;
+            const communityName = cidData.name;
+            const blockNumber = await getBlockNumber(api, timestamp);
             const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
             const apiAt = await api.at(blockHash);
             let entries = (
@@ -114,7 +116,7 @@ async function main() {
                         demurragePerBlock
                     ),
                 }));
-            res.send(JSON.stringify(entries));
+            res.send(JSON.stringify({data: entries, communityName}));
         } catch (e) {
             next(e);
         }
