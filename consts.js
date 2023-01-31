@@ -1,7 +1,7 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 
-export const INDEXER_ENDPOINT = "http://localhost:3000";
+export const INDEXER_ENDPOINT = process.env.INDEXER_ENDPOINT || "http://localhost:3000";
 
 export const ACCOUNTS = {
     HhuYrWaBKfqB4HbEVdLUHWEPM6TE7cSe9tQsf8reRuvN4vk: {
