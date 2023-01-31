@@ -1,29 +1,10 @@
 import { parseEncointerBalance } from "@encointer/types";
 import { ACCOUNTS, CIDS } from "./consts.js";
-import { gatherTransactionData, generateTxnLog } from "./graphQl.js";
-
-const LAST_BLOCK_OF_MONTH_CACHE = {};
-
-async function getBlockTimestamp(api, blockNumber) {
-    const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
-    return api.query.timestamp.now.at(blockHash);
-}
-// perform a binary search over all blocks to find the closest block below the timestamp
-export async function getBlockNumber(api, timestamp) {
-    const currentBlockNumber = (
-        await api.rpc.chain.getBlock()
-    ).block.header.number.toNumber();
-
-    let low = 0;
-    let high = currentBlockNumber;
-
-    while (high - low > 1) {
-        let middle = Math.floor((low + high) / 2);
-        if (timestamp < (await getBlockTimestamp(api, middle))) high = middle;
-        else low = middle;
-    }
-    return low;
-}
+import {
+    gatherTransactionData,
+    generateTxnLog,
+    getBlockNumberByTimestamp,
+} from "./graphQl.js";
 
 async function getBalance(api, cid, address, at) {
     const balanceEntry = await api.query.encointerBalances.balance.at(
@@ -54,21 +35,13 @@ function getFirstTimeStampOfMonth(year, monthIndex) {
 }
 
 export async function getLastBlockOfMonth(api, year, monthIndex) {
-    if (
-        year in LAST_BLOCK_OF_MONTH_CACHE &&
-        monthIndex in LAST_BLOCK_OF_MONTH_CACHE[year]
-    )
-        return LAST_BLOCK_OF_MONTH_CACHE[year][monthIndex];
     const lastTimestamp = getLastTimeStampOfMonth(year, monthIndex);
     if (new Date() < new Date(lastTimestamp)) {
         // we are not at the end of the month yet, so we return the current blocknumber
         return (await api.rpc.chain.getBlock()).block.header.number;
     }
-    const blockNumber = await getBlockNumber(api, lastTimestamp);
+    const blockNumber = await getBlockNumberByTimestamp(lastTimestamp);
 
-    if (!(year in LAST_BLOCK_OF_MONTH_CACHE))
-        LAST_BLOCK_OF_MONTH_CACHE[year] = {};
-    LAST_BLOCK_OF_MONTH_CACHE[year][monthIndex] = blockNumber;
     return blockNumber;
 }
 
@@ -78,7 +51,7 @@ export function applyDemurrage(principal, elapsedBlocks, demurragePerBlock) {
 
 async function getDemurrageAdjustedBalance(api, address, cid, blockNumber) {
     const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
-    const cidDecoded = CIDS[cid];
+    const cidDecoded = CIDS[cid].cidDecoded;
     let balanceEntry = await getBalance(api, cidDecoded, address, blockHash);
 
     const demurragePerBlock = await getDemurragePerBlock(

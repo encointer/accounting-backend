@@ -1,13 +1,13 @@
 import {
     applyDemurrage,
     getAccountingData,
-    getBlockNumber,
     getDemurragePerBlock,
     validateAccountToken,
 } from "./util.js";
 import cors from "cors";
 import { ACCOUNTS, CIDS } from "./consts.js";
 import { parseEncointerBalance } from "@encointer/types";
+import { getBlockNumberByTimestamp } from "./graphQl.js";
 
 function getFromCache(account, year, month) {
     const data = [];
@@ -92,7 +92,7 @@ export function addMiddlewaresAndRoutes(app, api) {
             const cidData = CIDS[req.query.cid];
             const cid = cidData.cidDecoded;
             const communityName = cidData.name;
-            const blockNumber = await getBlockNumber(api, timestamp);
+            const blockNumber = await getBlockNumberByTimestamp(timestamp);
             const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
             const apiAt = await api.at(blockHash);
             let entries = (

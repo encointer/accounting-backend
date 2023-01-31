@@ -19,6 +19,18 @@ async function graphQlQuery(query, variables) {
     return (await res.json()).data;
 }
 
+async function getClosestBlock(timestamp) {
+    const query = `query Query($timestamp: BigFloat!){
+        blocks(filter: {timestamp: {lessThanOrEqualTo:$timestamp}}, orderBy: TIMESTAMP_DESC, first:1) {
+          nodes {
+          blockHeight
+          }
+        }
+      }`;
+
+    return graphQlQuery(query, { timestamp });
+}
+
 async function getTransfers(start, end, address, cid, direction) {
     const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!){
         transferreds(filter: {arg${direction}: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC) {
@@ -71,8 +83,15 @@ export async function gatherTransactionData(start, end, address, cid) {
     const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.arg3, 0);
     const incomeMinusExpenses = sumIncoming - sumOutgoing;
 
-    const numDistinctClients = new Set(incoming.map(e => e.arg1)).size
-    return [incoming, outgoing, issues, incomeMinusExpenses, sumIssues, numDistinctClients];
+    const numDistinctClients = new Set(incoming.map((e) => e.arg1)).size;
+    return [
+        incoming,
+        outgoing,
+        issues,
+        incomeMinusExpenses,
+        sumIssues,
+        numDistinctClients,
+    ];
 }
 
 export function generateTxnLog(incoming, outgoing, issues) {
@@ -94,4 +113,9 @@ export function generateTxnLog(incoming, outgoing, issues) {
     const txnLog = incomingLog.concat(outgoingLog).concat(issuesLog);
     txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
     return txnLog;
+}
+
+export async function getBlockNumberByTimestamp(timestamp) {
+    let block = (await getClosestBlock(timestamp)).blocks.nodes[0];
+    return block.blockHeight;
 }
