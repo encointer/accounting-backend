@@ -90,6 +90,11 @@ export function addMiddlewaresAndRoutes(app, api) {
 
     app.get("/get-account-overview", async function (req, res, next) {
         try {
+            if (req.query.token !== process.env.ACCESS_TOKEN_ADMIN) {
+                res.send(403);
+                return;
+            }
+            
             const timestamp = req.query.timestamp;
             const cidData = CIDS[req.query.cid];
             const cid = cidData.cidDecoded;
