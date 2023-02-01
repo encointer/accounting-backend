@@ -1,5 +1,5 @@
 import { parseEncointerBalance } from "@encointer/types";
-import { ACCOUNTS, CIDS } from "./consts.js";
+import { CIDS } from "./consts.js";
 import {
     gatherTransactionData,
     generateTxnLog,
@@ -67,8 +67,8 @@ async function getDemurrageAdjustedBalance(api, address, cid, blockNumber) {
     return balance;
 }
 
-export function validateAccountToken(account, token) {
-    return ACCOUNTS[account].token === token;
+export function validateAccountToken(account, cid, token) {
+    return CIDS[cid].accounts[account].token === token;
 }
 
 export async function getAccountingData(api, account, cid, year, month) {
@@ -85,7 +85,8 @@ export async function getAccountingData(api, account, cid, year, month) {
         incoming,
         outgoing,
         issues,
-        incomeMinusExpenses,
+        sumIncoming,
+        sumOutgoing,
         sumIssues,
         numDistinctClients,
     ] = await gatherTransactionData(start, end, account, cid);
@@ -107,15 +108,17 @@ export async function getAccountingData(api, account, cid, year, month) {
 
     return {
         month,
-        incomeMinusExpenses,
+        incomeMinusExpenses: sumIncoming - sumOutgoing,
         sumIssues,
         balance,
         numIncoming: incoming.length,
         numOutgoing: outgoing.length,
+        sumIncoming,
+        sumOutgoing,
         numIssues: issues.length,
         numDistinctClients,
         costDemurrage:
-            previousBalance + incomeMinusExpenses + sumIssues - balance,
+            previousBalance + sumIncoming - sumOutgoing + sumIssues - balance,
         txnLog,
     };
 }

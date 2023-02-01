@@ -5,18 +5,9 @@ import {
     validateAccountToken,
 } from "./util.js";
 import cors from "cors";
-import { ACCOUNTS, CIDS } from "./consts.js";
+import { CIDS } from "./consts.js";
 import { parseEncointerBalance } from "@encointer/types";
 import { getBlockNumberByTimestamp } from "./graphQl.js";
-
-function getFromCache(account, year, month) {
-    const data = [];
-    for (let i = 0; i < month; i++) {
-        const item = DATA_CACHE[account]?.[year]?.[month];
-        if (item) data.push(item);
-    }
-    return data;
-}
 
 function addToCache(account, year, month, data) {
     DATA_CACHE[account] = DATA_CACHE[account] || {};
@@ -25,6 +16,28 @@ function addToCache(account, year, month, data) {
 }
 
 const DATA_CACHE = {};
+
+async function gatherAccountingOverview(api, account, cid, year, month) {
+    const cachedData = DATA_CACHE[account]?.[year]
+    const data = [];
+    for (let i = 0; i < month; i++) {
+        if (cachedData && cachedData[i]) {
+            data.push(cachedData[i]);
+        } else {
+            const accountingData = await getAccountingData(
+                api,
+                account,
+                cid,
+                year,
+                i
+            );
+            data.push(accountingData);
+            addToCache(account, year, i, accountingData);
+        }
+    }
+    data.push(await getAccountingData(api, account, cid, year, month));
+    return data;
+}
 
 export function addMiddlewaresAndRoutes(app, api) {
     app.use(cors());
@@ -47,37 +60,26 @@ export function addMiddlewaresAndRoutes(app, api) {
             const cid = req.query.cid;
             const token = req.query.token;
 
-            if (!validateAccountToken(account, token)) {
+            if (!validateAccountToken(account, cid, token)) {
                 res.send(403);
                 return;
             }
             const now = new Date();
             const year = now.getUTCFullYear();
             const month = now.getUTCMonth();
-            const cached_data = getFromCache(account, year, month);
 
-            const data = [];
-            for (let i = 0; i < month; i++) {
-                if (cached_data[i]) {
-                    data.push(cached_data[i]);
-                } else {
-                    const accountingData = await getAccountingData(
-                        api,
-                        account,
-                        cid,
-                        year,
-                        i
-                    );
-                    data.push(accountingData);
-                    addToCache(account, year, i, accountingData);
-                }
-            }
-            data.push(await getAccountingData(api, account, cid, year, month));
+            const data = await gatherAccountingOverview(
+                api,
+                account,
+                cid,
+                year,
+                month
+            );
             res.send(
                 JSON.stringify({
                     data,
                     communityName: CIDS[cid].name,
-                    name: ACCOUNTS[account].name,
+                    name: CIDS[cid].accounts[account]?.name || "",
                     year,
                 })
             );
@@ -115,6 +117,46 @@ export function addMiddlewaresAndRoutes(app, api) {
                     ),
                 }));
             res.send(JSON.stringify({ data: entries, communityName }));
+        } catch (e) {
+            next(e);
+        }
+    });
+
+    app.get("/get-all-accounts-data", async function (req, res, next) {
+        try {
+            if (req.query.token !== process.env.ACCESS_TOKEN_ADMIN) {
+                res.send(403);
+                return;
+            }
+            const cid = req.query.cid;
+            const cidData = CIDS[cid];
+            const communityName = cidData.name;
+            const accounts = cidData.accounts;
+
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const month = now.getUTCMonth();
+
+            const data = [];
+            for (const [account, accountInfo] of Object.entries(accounts)) {
+                data.push({
+                    name: accountInfo.name,
+                    data: await gatherAccountingOverview(
+                        api,
+                        account,
+                        cid,
+                        year,
+                        month
+                    ),
+                });
+            }
+            res.send(
+                JSON.stringify({
+                    data,
+                    communityName,
+                    year,
+                })
+            );
         } catch (e) {
             next(e);
         }

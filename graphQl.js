@@ -81,14 +81,14 @@ export async function gatherTransactionData(start, end, address, cid) {
 
     const sumIncoming = incoming.reduce((acc, cur) => acc + cur.arg3, 0);
     const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.arg3, 0);
-    const incomeMinusExpenses = sumIncoming - sumOutgoing;
 
     const numDistinctClients = new Set(incoming.map((e) => e.arg1)).size;
     return [
         incoming,
         outgoing,
         issues,
-        incomeMinusExpenses,
+        sumIncoming,
+        sumOutgoing,
         sumIssues,
         numDistinctClients,
     ];
