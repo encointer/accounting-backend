@@ -119,6 +119,7 @@ export async function getAccountingData(api, account, cid, year, month) {
         numDistinctClients,
         costDemurrage:
             previousBalance + sumIncoming - sumOutgoing + sumIssues - balance,
+        avgTxnValue: incoming.length > 0 ? sumIncoming / incoming.length : 0,
         txnLog,
     };
 }
