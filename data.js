@@ -6,6 +6,36 @@ import {
     getBlockNumberByTimestamp,
 } from "./graphQl.js";
 
+function addToCache(account, year, month, data) {
+    DATA_CACHE[account] = DATA_CACHE[account] || {};
+    DATA_CACHE[account][year] = DATA_CACHE[account][year] || {};
+    DATA_CACHE[account][year][month] = data;
+}
+
+const DATA_CACHE = {};
+
+export async function gatherAccountingOverview(api, account, cid, year, month) {
+    const cachedData = DATA_CACHE[account]?.[year];
+    const data = [];
+    for (let i = 0; i < month; i++) {
+        if (cachedData && cachedData[i]) {
+            data.push(cachedData[i]);
+        } else {
+            const accountingData = await getAccountingData(
+                api,
+                account,
+                cid,
+                year,
+                i
+            );
+            data.push(accountingData);
+            addToCache(account, year, i, accountingData);
+        }
+    }
+    data.push(await getAccountingData(api, account, cid, year, month));
+    return data;
+}
+
 async function getBalance(api, cid, address, at) {
     const balanceEntry = await api.query.encointerBalances.balance.at(
         at,
@@ -65,10 +95,6 @@ async function getDemurrageAdjustedBalance(api, address, cid, blockNumber) {
         demurragePerBlock
     );
     return balance;
-}
-
-export function validateAccountToken(account, cid, token) {
-    return CIDS[cid].accounts[account].token === token;
 }
 
 export async function getAccountingData(api, account, cid, year, month) {

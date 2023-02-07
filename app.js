@@ -1,43 +1,13 @@
 import {
     applyDemurrage,
-    getAccountingData,
+    gatherAccountingOverview,
     getDemurragePerBlock,
-    validateAccountToken,
-} from "./util.js";
+} from "./data.js";
 import cors from "cors";
 import { CIDS } from "./consts.js";
 import { parseEncointerBalance } from "@encointer/types";
 import { getBlockNumberByTimestamp } from "./graphQl.js";
-
-function addToCache(account, year, month, data) {
-    DATA_CACHE[account] = DATA_CACHE[account] || {};
-    DATA_CACHE[account][year] = DATA_CACHE[account][year] || {};
-    DATA_CACHE[account][year][month] = data;
-}
-
-const DATA_CACHE = {};
-
-async function gatherAccountingOverview(api, account, cid, year, month) {
-    const cachedData = DATA_CACHE[account]?.[year]
-    const data = [];
-    for (let i = 0; i < month; i++) {
-        if (cachedData && cachedData[i]) {
-            data.push(cachedData[i]);
-        } else {
-            const accountingData = await getAccountingData(
-                api,
-                account,
-                cid,
-                year,
-                i
-            );
-            data.push(accountingData);
-            addToCache(account, year, i, accountingData);
-        }
-    }
-    data.push(await getAccountingData(api, account, cid, year, month));
-    return data;
-}
+import { validateAccountOrAdminToken, validateAdminToken } from "./apiUtil.js";
 
 export function addMiddlewaresAndRoutes(app, api) {
     app.use(cors());
@@ -58,10 +28,9 @@ export function addMiddlewaresAndRoutes(app, api) {
         try {
             const account = req.query.account;
             const cid = req.query.cid;
-            const token = req.query.token;
 
-            if (!validateAccountToken(account, cid, token)) {
-                res.send(403);
+            if (!validateAccountOrAdminToken(account, cid, req)) {
+                res.sendStatus(403);
                 return;
             }
             const now = new Date();
@@ -90,11 +59,11 @@ export function addMiddlewaresAndRoutes(app, api) {
 
     app.get("/get-account-overview", async function (req, res, next) {
         try {
-            if (req.query.token !== process.env.ACCESS_TOKEN_ADMIN) {
-                res.send(403);
+            if (!validateAdminToken(req)) {
+                res.sendStatus(403);
                 return;
             }
-            
+
             const timestamp = req.query.timestamp;
             const cidData = CIDS[req.query.cid];
             const cid = cidData.cidDecoded;
@@ -129,8 +98,8 @@ export function addMiddlewaresAndRoutes(app, api) {
 
     app.get("/get-all-accounts-data", async function (req, res, next) {
         try {
-            if (req.query.token !== process.env.ACCESS_TOKEN_ADMIN) {
-                res.send(403);
+            if (!validateAdminToken(req)) {
+                res.sendStatus(403);
                 return;
             }
             const cid = req.query.cid;
