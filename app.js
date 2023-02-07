@@ -96,6 +96,18 @@ export function addMiddlewaresAndRoutes(app, api) {
         }
     });
 
+    app.get("/get-tokens", async function (req, res, next) {
+        try {
+            if (!validateAdminToken(req)) {
+                res.sendStatus(403);
+                return;
+            }
+            res.send(JSON.stringify(CIDS));
+        } catch (e) {
+            next(e);
+        }
+    });
+
     app.get("/get-all-accounts-data", async function (req, res, next) {
         try {
             if (!validateAdminToken(req)) {
