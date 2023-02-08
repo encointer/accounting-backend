@@ -66,6 +66,23 @@ async function getIssues(start, end, address, cid) {
     return graphQlQuery(query, { address, start, end, cid });
 }
 
+export async function getRewardsIssueds(cid) {
+    const query = `query Query($cid: String!){
+        rewardsIssueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_DESC) {
+            nodes {
+            id
+            blockHeight
+            timestamp
+            arg0
+            arg1
+            arg2
+            }
+          }
+      }`;
+
+    return (await graphQlQuery(query, { cid })).rewardsIssueds.nodes;
+}
+
 export async function gatherTransactionData(start, end, address, cid) {
     let incoming = (await getTransfers(start, end, address, cid, INCOMING))
         .transferreds.nodes;

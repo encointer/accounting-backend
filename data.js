@@ -4,18 +4,21 @@ import {
     gatherTransactionData,
     generateTxnLog,
     getBlockNumberByTimestamp,
+    getRewardsIssueds,
 } from "./graphQl.js";
 
-function addToCache(account, year, month, data) {
-    DATA_CACHE[account] = DATA_CACHE[account] || {};
-    DATA_CACHE[account][year] = DATA_CACHE[account][year] || {};
-    DATA_CACHE[account][year][month] = data;
+function addToAccountDataCache(account, year, month, data) {
+    ACCOUNT_DATA_CACHE[account] = ACCOUNT_DATA_CACHE[account] || {};
+    ACCOUNT_DATA_CACHE[account][year] = ACCOUNT_DATA_CACHE[account][year] || {};
+    ACCOUNT_DATA_CACHE[account][year][month] = data;
 }
 
-const DATA_CACHE = {};
+const ACCOUNT_DATA_CACHE = {};
+
+const REWARDS_DATA_CACHE = {};
 
 export async function gatherAccountingOverview(api, account, cid, year, month) {
-    const cachedData = DATA_CACHE[account]?.[year];
+    const cachedData = ACCOUNT_DATA_CACHE[account]?.[year];
     const data = [];
     for (let i = 0; i < month; i++) {
         if (cachedData && cachedData[i]) {
@@ -29,7 +32,7 @@ export async function gatherAccountingOverview(api, account, cid, year, month) {
                 i
             );
             data.push(accountingData);
-            addToCache(account, year, i, accountingData);
+            addToAccountDataCache(account, year, i, accountingData);
         }
     }
     data.push(await getAccountingData(api, account, cid, year, month));
@@ -148,4 +151,66 @@ export async function getAccountingData(api, account, cid, year, month) {
         avgTxnValue: incoming.length > 0 ? sumIncoming / incoming.length : 0,
         txnLog,
     };
+}
+
+export async function gatherRewardsData(api, cid) {
+    const cidData = CIDS[cid];
+    const cidDecoded = cidData.cidDecoded;
+    const rewardsIssueds = await getRewardsIssueds(cid);
+
+    // sorting is important for chaching
+    rewardsIssueds.sort((a, b) => b.timestamp - a.timestamp);
+
+    const currentCindex = (
+        await api.query.encointerScheduler.currentCeremonyIndex()
+    ).toNumber();
+
+    const rewardsIssuedsWithCindexAndNominalIncome = [];
+    for (const issueEvent of rewardsIssueds) {
+        const h = await api.rpc.chain.getBlockHash(issueEvent.blockHeight);
+        const apiAt = await api.at(h);
+
+        let [nominalIncome, cindex, phase] = await apiAt.queryMulti([
+            [apiAt.query.encointerCommunities.nominalIncome, cidDecoded],
+            [apiAt.query.encointerScheduler.currentCeremonyIndex],
+            [apiAt.query.encointerScheduler.currentPhase],
+        ]);
+
+        cindex = cindex.toNumber();
+
+        issueEvent.cindex =
+            phase.toHuman() === "Registering" ? cindex - 1 : cindex;
+        issueEvent.nominalIncome = parseEncointerBalance(nominalIncome.bits);
+        if (REWARDS_DATA_CACHE[cid] && cindex in REWARDS_DATA_CACHE[cid]) break;
+        rewardsIssuedsWithCindexAndNominalIncome.push(issueEvent);
+    }
+
+    const newData = rewardsIssuedsWithCindexAndNominalIncome.reduce(
+        (acc, cur) => {
+            const cindex = cur.cindex;
+            const numParticipants = parseInt(cur.arg2);
+            const nominalIncome = cur.nominalIncome;
+            acc[cindex] = acc[cindex] || {};
+            acc[cindex].numParticipants =
+                (acc[cindex].numParticipants || 0) + numParticipants;
+            acc[cindex].totalRewards =
+                (acc[cindex].totalRewards || 0) +
+                numParticipants * nominalIncome;
+            return acc;
+        },
+        {}
+    );
+
+    let result = newData;
+    if (REWARDS_DATA_CACHE[cid])
+        result = { ...result, ...REWARDS_DATA_CACHE[cid] };
+
+    const dataToBeCached = Object.fromEntries(
+        Object.entries(result).filter(
+            ([key]) => parseInt(key) < currentCindex - 1
+        )
+    );
+    REWARDS_DATA_CACHE[cid] = dataToBeCached;
+
+    return result;
 }

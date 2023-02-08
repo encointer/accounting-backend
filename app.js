@@ -1,12 +1,13 @@
 import {
     applyDemurrage,
     gatherAccountingOverview,
+    gatherRewardsData,
     getDemurragePerBlock,
 } from "./data.js";
 import cors from "cors";
 import { CIDS } from "./consts.js";
 import { parseEncointerBalance } from "@encointer/types";
-import { getBlockNumberByTimestamp } from "./graphQl.js";
+import { getBlockNumberByTimestamp, getRewardsIssueds } from "./graphQl.js";
 import { validateAccountOrAdminToken, validateAdminToken } from "./apiUtil.js";
 
 export function addMiddlewaresAndRoutes(app, api) {
@@ -143,6 +144,22 @@ export function addMiddlewaresAndRoutes(app, api) {
                     year,
                 })
             );
+        } catch (e) {
+            next(e);
+        }
+    });
+
+    app.get("/get-rewards-data", async function (req, res, next) {
+        try {
+            if (!validateAdminToken(req)) {
+                res.sendStatus(403);
+                return;
+            }
+            const cid = req.query.cid;
+
+            const data = await gatherRewardsData(api, cid);
+
+            res.send(JSON.stringify({ data, communityName: CIDS[cid].name }));
         } catch (e) {
             next(e);
         }
