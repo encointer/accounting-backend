@@ -167,6 +167,8 @@ export async function gatherRewardsData(api, cid) {
 
     const rewardsIssuedsWithCindexAndNominalIncome = [];
     for (const issueEvent of rewardsIssueds) {
+        // exclude rescue action event
+        if(issueEvent.id === '1063138-1') continue
         const h = await api.rpc.chain.getBlockHash(issueEvent.blockHeight);
         const apiAt = await api.at(h);
 
