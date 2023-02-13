@@ -7,7 +7,11 @@ import {
 import cors from "cors";
 import { CIDS } from "./consts.js";
 import { parseEncointerBalance } from "@encointer/types";
-import { getBlockNumberByTimestamp, getRewardsIssueds } from "./graphQl.js";
+import {
+    getBlockNumberByTimestamp,
+    gatherTransactionData,
+    generateTxnLog,
+} from "./graphQl.js";
 import { validateAccountOrAdminToken, validateAdminToken } from "./apiUtil.js";
 
 export function addMiddlewaresAndRoutes(app, api) {
@@ -165,6 +169,29 @@ export function addMiddlewaresAndRoutes(app, api) {
             const data = await gatherRewardsData(api, cid);
 
             res.send(JSON.stringify({ data, communityName: CIDS[cid].name }));
+        } catch (e) {
+            next(e);
+        }
+    });
+
+    app.get("/transaction-log", async function (req, res, next) {
+        try {
+            const query = req.query;
+            const cid = query.cid;
+            const account = query.account;
+            const start = query.start;
+            const end = query.end;
+
+            const [incoming, outgoing, issues] = await gatherTransactionData(
+                start,
+                end,
+                account,
+                cid
+            );
+
+            const txnLog = generateTxnLog(incoming, outgoing, issues);
+
+            res.send(JSON.stringify(txnLog));
         } catch (e) {
             next(e);
         }
