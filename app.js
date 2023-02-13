@@ -29,7 +29,7 @@ export function addMiddlewaresAndRoutes(app, api) {
         next();
     });
 
-    app.get("/get-accounting-data", async function (req, res, next) {
+    app.get("/accounting-data", async function (req, res, next) {
         try {
             const account = req.query.account;
             const cid = req.query.cid;
@@ -62,7 +62,7 @@ export function addMiddlewaresAndRoutes(app, api) {
         }
     });
 
-    app.get("/get-account-overview", async function (req, res, next) {
+    app.get("/account-overview", async function (req, res, next) {
         try {
             if (!validateAdminToken(req)) {
                 res.sendStatus(403);
@@ -106,7 +106,7 @@ export function addMiddlewaresAndRoutes(app, api) {
         }
     });
 
-    app.get("/get-tokens", async function (req, res, next) {
+    app.get("/tokens", async function (req, res, next) {
         try {
             if (!validateAdminToken(req)) {
                 res.sendStatus(403);
@@ -118,7 +118,7 @@ export function addMiddlewaresAndRoutes(app, api) {
         }
     });
 
-    app.get("/get-all-accounts-data", async function (req, res, next) {
+    app.get("/all-accounts-data", async function (req, res, next) {
         try {
             if (!validateAdminToken(req)) {
                 res.sendStatus(403);
@@ -158,7 +158,7 @@ export function addMiddlewaresAndRoutes(app, api) {
         }
     });
 
-    app.get("/get-rewards-data", async function (req, res, next) {
+    app.get("/rewards-data", async function (req, res, next) {
         try {
             if (!validateAdminToken(req)) {
                 res.sendStatus(403);
