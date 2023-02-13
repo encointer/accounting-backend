@@ -66,8 +66,9 @@ export function addMiddlewaresAndRoutes(app, api) {
             }
 
             const timestamp = req.query.timestamp;
-            const cidData = CIDS[req.query.cid];
-            const cid = cidData.cidDecoded;
+            const cid = req.query.cid;
+            const cidData = CIDS[cid];
+            const cidDecoded = cidData.cidDecoded;
             const communityName = cidData.name;
             const blockNumber = await getBlockNumberByTimestamp(timestamp);
             const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
@@ -77,14 +78,18 @@ export function addMiddlewaresAndRoutes(app, api) {
             ).map((e) => ({ key: e[0].toHuman(), value: e[1] }));
             const demurragePerBlock = await getDemurragePerBlock(
                 api,
-                cid,
+                cidDecoded,
                 blockHash
             );
 
             entries = entries
-                .filter((e) => JSON.stringify(e.key[0]) === JSON.stringify(cid))
+                .filter(
+                    (e) =>
+                        JSON.stringify(e.key[0]) === JSON.stringify(cidDecoded)
+                )
                 .map((e) => ({
                     account: e.key[1],
+                    accountName: cidData.accounts[e.key[1]]?.name,
                     balance: applyDemurrage(
                         parseEncointerBalance(e.value.principal.bits),
                         blockNumber - e.value.lastUpdate.toNumber(),
