@@ -10,7 +10,7 @@ export function validateAccountToken(account, cid, req) {
 export function validateAdminToken(req) {
     return (
         process.env.ACCESS_TOKEN_ADMIN ===
-        req.headers?.authorization?.split("Basic ")?.[1]
+        req.headers?.['access-token']
     );
 }
 
