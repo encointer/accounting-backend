@@ -1,7 +1,7 @@
 import { CIDS } from "./consts.js";
 
 export function validateAccountToken(account, cid, req) {
-    return CIDS[cid].accounts[account].token === req.headers?.["access-token"];
+    return CIDS[cid]?.accounts[account]?.token === req.headers?.["access-token"];
 }
 
 export function validateAdminToken(req) {
