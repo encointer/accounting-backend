@@ -113,16 +113,19 @@ export async function gatherTransactionData(start, end, address, cid) {
 
 export function generateTxnLog(incoming, outgoing, issues) {
     const incomingLog = incoming.map((e) => ({
+        blockNumber: e.blockHeight,
         timestamp: e.timestamp,
         counterParty: e.arg1,
         amount: e.arg3,
     }));
     const outgoingLog = outgoing.map((e) => ({
+        blockNumber: e.blockHeight,
         timestamp: e.timestamp,
         counterParty: e.arg2,
         amount: -e.arg3,
     }));
     const issuesLog = issues.map((e) => ({
+        blockNumber: e.blockHeight,
         timestamp: e.timestamp,
         counterParty: "ISSUANCE",
         amount: e.arg2,
