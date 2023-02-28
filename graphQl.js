@@ -110,32 +110,3 @@ export async function gatherTransactionData(start, end, address, cid) {
         numDistinctClients,
     ];
 }
-
-export function generateTxnLog(incoming, outgoing, issues) {
-    const incomingLog = incoming.map((e) => ({
-        blockNumber: e.blockHeight,
-        timestamp: e.timestamp,
-        counterParty: e.arg1,
-        amount: e.arg3,
-    }));
-    const outgoingLog = outgoing.map((e) => ({
-        blockNumber: e.blockHeight,
-        timestamp: e.timestamp,
-        counterParty: e.arg2,
-        amount: -e.arg3,
-    }));
-    const issuesLog = issues.map((e) => ({
-        blockNumber: e.blockHeight,
-        timestamp: e.timestamp,
-        counterParty: "ISSUANCE",
-        amount: e.arg2,
-    }));
-    const txnLog = incomingLog.concat(outgoingLog).concat(issuesLog);
-    txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
-    return txnLog;
-}
-
-export async function getBlockNumberByTimestamp(timestamp) {
-    let block = (await getClosestBlock(timestamp)).blocks.nodes[0];
-    return block.blockHeight;
-}
