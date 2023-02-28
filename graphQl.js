@@ -95,7 +95,6 @@ export async function gatherTransactionData(start, end, address, cid) {
     const issues = (await getIssues(start, end, address, cid)).issueds.nodes;
 
     const sumIssues = issues.reduce((acc, cur) => acc + cur.arg2, 0);
-
     const sumIncoming = incoming.reduce((acc, cur) => acc + cur.arg3, 0);
     const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.arg3, 0);
 
@@ -109,4 +108,9 @@ export async function gatherTransactionData(start, end, address, cid) {
         sumIssues,
         numDistinctClients,
     ];
+}
+
+export async function getBlockNumberByTimestamp(timestamp) {
+    let block = (await getClosestBlock(timestamp)).blocks.nodes[0];
+    return block.blockHeight;
 }

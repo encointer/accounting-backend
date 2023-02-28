@@ -4,13 +4,13 @@ import {
     gatherAccountingOverview,
     gatherRewardsData,
     getDemurragePerBlock,
-    generateTxnLog,
-    getBlockNumberByTimestamp,
+    generateTxnLog
 } from "../data.js";
 import { CIDS } from "../consts.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
-    gatherTransactionData
+    gatherTransactionData,
+    getBlockNumberByTimestamp,
 } from "../graphQl.js";
 import { validateAccountOrAdminToken, validateAdminToken } from "../apiUtil.js";
 

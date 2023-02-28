@@ -3,7 +3,9 @@ import { CIDS } from "./consts.js";
 import {
     gatherTransactionData,
     getRewardsIssueds,
+    getBlockNumberByTimestamp,
 } from "./graphQl.js";
+import { getMonthName } from "./util.js";
 
 function addToAccountDataCache(account, year, month, data) {
     ACCOUNT_DATA_CACHE[account] = ACCOUNT_DATA_CACHE[account] || {};
@@ -119,6 +121,7 @@ export async function getAccountingData(api, account, cid, year, month) {
     ] = await gatherTransactionData(start, end, account, cid);
 
     const txnLog = generateTxnLog(incoming, outgoing, issues);
+    const dailyDigest = generateDailyDigestFromTxnLog(txnLog);
 
     const balance = await getDemurrageAdjustedBalance(
         api,
@@ -148,6 +151,7 @@ export async function getAccountingData(api, account, cid, year, month) {
             previousBalance + sumIncoming - sumOutgoing + sumIssues - balance,
         avgTxnValue: incoming.length > 0 ? sumIncoming / incoming.length : 0,
         txnLog,
+        dailyDigest,
     };
 }
 
@@ -166,7 +170,7 @@ export async function gatherRewardsData(api, cid) {
     const rewardsIssuedsWithCindexAndNominalIncome = [];
     for (const issueEvent of rewardsIssueds) {
         // exclude rescue action event
-        if(issueEvent.id === '1063138-1') continue
+        if (issueEvent.id === "1063138-1") continue;
         const h = await api.rpc.chain.getBlockHash(issueEvent.blockHeight);
         const apiAt = await api.at(h);
 
@@ -215,7 +219,6 @@ export async function gatherRewardsData(api, cid) {
     return result;
 }
 
-
 export function generateTxnLog(incoming, outgoing, issues) {
     const incomingLog = incoming.map((e) => ({
         blockNumber: e.blockHeight,
@@ -240,7 +243,54 @@ export function generateTxnLog(incoming, outgoing, issues) {
     return txnLog;
 }
 
-export async function getBlockNumberByTimestamp(timestamp) {
-    let block = (await getClosestBlock(timestamp)).blocks.nodes[0];
-    return block.blockHeight;
+function groupTransactionsByDay(txnLog) {
+    return txnLog.reduce((acc, cur) => {
+        const d = new Date(parseInt(cur.timestamp));
+        const dayString = `${getMonthName(d.getUTCMonth())} ${d.getUTCDate()}`;
+        acc[dayString] = acc[dayString] || [];
+        acc[dayString].push(cur);
+        return acc;
+    }, {});
+}
+
+function generateDailyDigestFromTxnLog(txnLog) {
+    const groupedTransactions = groupTransactionsByDay(txnLog);
+    const result = {};
+
+    for (const [dayString, txns] of Object.entries(groupedTransactions)) {
+        let sumIncoming = 0;
+        let numIncoming = 0;
+        let sumOutgoing = 0;
+        let numOutgoing = 0;
+        let sumIssues = 0;
+        let numIssues = 0;
+
+        const distinctClients = new Set();
+        for (const txn of txns) {
+            if (txn.amount > 0) {
+                if (txn.counterParty === "ISSUANCE") {
+                    numIssues++;
+                    sumIssues += txn.amount;
+                } else {
+                    numIncoming++;
+                    sumIncoming += txn.amount;
+                    distinctClients.add(txn.counterParty);
+                }
+            } else {
+                numOutgoing++;
+                sumOutgoing += -txn.amount;
+            }
+        }
+        result[dayString] = {
+            sumIncoming,
+            numIncoming,
+            sumOutgoing,
+            numOutgoing,
+            sumIssues,
+            numIssues,
+            numDistinctClients: distinctClients.size,
+            avgTxnValue: numIncoming ? sumIncoming / numIncoming : 0,
+        };
+    }
+    return result;
 }
