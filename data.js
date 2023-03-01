@@ -1,5 +1,6 @@
 import { parseEncointerBalance } from "@encointer/types";
 import { CIDS } from "./consts.js";
+import db from "./db.js";
 import {
     gatherTransactionData,
     getRewardsIssueds,
@@ -7,22 +8,13 @@ import {
 } from "./graphQl.js";
 import { getMonthName } from "./util.js";
 
-function addToAccountDataCache(account, year, month, data) {
-    ACCOUNT_DATA_CACHE[account] = ACCOUNT_DATA_CACHE[account] || {};
-    ACCOUNT_DATA_CACHE[account][year] = ACCOUNT_DATA_CACHE[account][year] || {};
-    ACCOUNT_DATA_CACHE[account][year][month] = data;
-}
-
-const ACCOUNT_DATA_CACHE = {};
-
-const REWARDS_DATA_CACHE = {};
-
 export async function gatherAccountingOverview(api, account, cid, year, month) {
-    const cachedData = ACCOUNT_DATA_CACHE[account]?.[year];
+    const cachedData = await db.getFromAccountDataCache(account, year);
     const data = [];
     for (let i = 0; i < month; i++) {
-        if (cachedData && cachedData[i]) {
-            data.push(cachedData[i]);
+        const cachedMonthItem = cachedData?.filter((e) => e.month === i)?.[0];
+        if (cachedMonthItem) {
+            data.push(cachedMonthItem);
         } else {
             const accountingData = await getAccountingData(
                 api,
@@ -32,7 +24,7 @@ export async function gatherAccountingOverview(api, account, cid, year, month) {
                 i
             );
             data.push(accountingData);
-            addToAccountDataCache(account, year, i, accountingData);
+            db.insertIntoAccountDataCache(account, year, i, accountingData);
         }
     }
     data.push(await getAccountingData(api, account, cid, year, month));
@@ -168,6 +160,8 @@ export async function gatherRewardsData(api, cid) {
     ).toNumber();
 
     const rewardsIssuedsWithCindexAndNominalIncome = [];
+
+    const cachedData = (await db.getFromRewardsDataCache(cid))?.data;
     for (const issueEvent of rewardsIssueds) {
         // exclude rescue action event
         if (issueEvent.id === "1063138-1") continue;
@@ -185,7 +179,8 @@ export async function gatherRewardsData(api, cid) {
         issueEvent.cindex =
             phase.toHuman() === "Registering" ? cindex - 1 : cindex;
         issueEvent.nominalIncome = parseEncointerBalance(nominalIncome.bits);
-        if (REWARDS_DATA_CACHE[cid] && cindex in REWARDS_DATA_CACHE[cid]) break;
+
+        if (cachedData && cindex.toString() in cachedData) break;
         rewardsIssuedsWithCindexAndNominalIncome.push(issueEvent);
     }
 
@@ -206,15 +201,16 @@ export async function gatherRewardsData(api, cid) {
     );
 
     let result = newData;
-    if (REWARDS_DATA_CACHE[cid])
-        result = { ...result, ...REWARDS_DATA_CACHE[cid] };
+    if (cachedData)
+        result = { ...result, ...cachedData };
 
+    // cache only data that is sure not to change anymore
     const dataToBeCached = Object.fromEntries(
         Object.entries(result).filter(
             ([key]) => parseInt(key) < currentCindex - 1
         )
     );
-    REWARDS_DATA_CACHE[cid] = dataToBeCached;
+    db.insertIntoRewardsDataCache(cid, dataToBeCached);
 
     return result;
 }
