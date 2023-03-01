@@ -22,7 +22,7 @@ class Database {
     }
 
     async getFromAccountDataCache(account, year) {
-        return (await this.accountData.find({ account, year })).toArray();
+        return (await (await this.accountData.find({ account, year })).toArray()).map(e => e.data);
     }
 
     async insertIntoRewardsDataCache(cid, data) {
