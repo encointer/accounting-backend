@@ -32,8 +32,8 @@ async function getClosestBlock(timestamp) {
 }
 
 async function getTransfers(start, end, address, cid, direction) {
-    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!){
-        transferreds(filter: {arg${direction}: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC) {
+    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
+        transferreds(filter: {arg${direction}: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
           nodes {
           id
           blockHeight
@@ -46,12 +46,12 @@ async function getTransfers(start, end, address, cid, direction) {
         }
       }`;
 
-    return graphQlQuery(query, { address, start, end, cid });
+    return getAllPages(query, { address, start, end, cid });
 }
 
 async function getIssues(start, end, address, cid) {
-    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!){
-        issueds(filter: {arg1: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC) {
+    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
+        issueds(filter: {arg1: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
           nodes {
           id
           blockHeight
@@ -63,12 +63,12 @@ async function getIssues(start, end, address, cid) {
         }
       }`;
 
-    return graphQlQuery(query, { address, start, end, cid });
+    return getAllPages(query, { address, start, end, cid });
 }
 
 export async function getRewardsIssueds(cid) {
-    const query = `query Query($cid: String!){
-        rewardsIssueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_DESC) {
+    const query = `query Query($cid: String!, $after: Cursor!){
+        rewardsIssueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_DESC, after: $after) {
             nodes {
             id
             blockHeight
@@ -77,22 +77,38 @@ export async function getRewardsIssueds(cid) {
             arg1
             arg2
             }
+            pageInfo {
+              endCursor
+              hasNextPage
+            }
           }
       }`;
 
-    return (await graphQlQuery(query, { cid })).rewardsIssueds.nodes;
+    return getAllPages(query, { cid });
+}
+
+export async function getAllPages(query, variables) {
+    let response, data;
+    const result = [];
+    variables.after = '';
+    do {
+        response = await graphQlQuery(query, variables);
+        data = Object.values(response)[0];
+        result.push(...data.nodes);
+        variables.after = data?.pageInfo?.endCursor;
+    } while (data?.pageInfo?.hasNextPage);
+
+    return result
 }
 
 export async function gatherTransactionData(start, end, address, cid) {
-    let incoming = (await getTransfers(start, end, address, cid, INCOMING))
-        .transferreds.nodes;
-    const outgoing = (await getTransfers(start, end, address, cid, OUTGOING))
-        .transferreds.nodes;
+    let incoming = await getTransfers(start, end, address, cid, INCOMING);
+    const outgoing = await getTransfers(start, end, address, cid, OUTGOING);
 
     // hack to exclude cid fuckup transactions
     // incoming = incoming.filter((e) => !excludeEvents.includes(e.id));
 
-    const issues = (await getIssues(start, end, address, cid)).issueds.nodes;
+    const issues = await getIssues(start, end, address, cid)
 
     const sumIssues = issues.reduce((acc, cur) => acc + cur.arg2, 0);
     const sumIncoming = incoming.reduce((acc, cur) => acc + cur.arg3, 0);
