@@ -16,6 +16,34 @@ import { validateAccountOrAdminToken, validateAdminToken } from "../apiUtil.js";
 
 const accounting = express.Router();
 
+/**
+ * @swagger
+ * /v1/accounting/accounting-data:
+ *   get:
+ *     description: Retrieve aggregated accounting data for a given cid and user
+ *     parameters:
+ *       - in: query
+ *         name: account
+ *         required: true
+ *         description: AccountId
+ *         schema:
+ *           type: string 
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - ApiKeyAuth: []  
+*/ 
 accounting.get("/accounting-data", async function (req, res, next) {
     try {
         const api = req.app.get("api");
@@ -50,6 +78,34 @@ accounting.get("/accounting-data", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/accounting/account-overview:
+ *   get:
+ *     description: Retrieve overview of balances of all accounts
+ *     parameters:
+ *       - in: query
+ *         name: timestamp
+ *         required: true
+ *         description: Timestamp
+ *         schema:
+ *           type: string 
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - ApiKeyAuth: []  
+*/
 accounting.get("/account-overview", async function (req, res, next) {
     try {
         if (!validateAdminToken(req)) {
@@ -94,19 +150,55 @@ accounting.get("/account-overview", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/accounting/tokens:
+ *   get:
+ *     description: Retrieve all access tokens of businesses
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - ApiKeyAuth: []  
+*/
 accounting.get("/tokens", async function (req, res, next) {
     try {
         if (!validateAdminToken(req)) {
             res.sendStatus(403);
             return;
         }
-        const api = req.app.get("api");
         res.send(JSON.stringify(CIDS));
     } catch (e) {
         next(e);
     }
 });
 
+/**
+ * @swagger
+ * /v1/accounting/all-accounts-data:
+ *   get:
+ *     description: Retrieve accounting-data for all accounts of a specified cid
+ *     parameters:
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - ApiKeyAuth: []  
+*/
 accounting.get("/all-accounts-data", async function (req, res, next) {
     try {
         if (!validateAdminToken(req)) {
@@ -148,6 +240,28 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/accounting/rewards-data:
+ *   get:
+ *     description: Retrieve overview of paid rewards per cycle for a specified cid
+ *     parameters:
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - ApiKeyAuth: []  
+*/
 accounting.get("/rewards-data", async function (req, res, next) {
     try {
         if (!validateAdminToken(req)) {
@@ -165,6 +279,46 @@ accounting.get("/rewards-data", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/accounting/transaction-log:
+ *   get:
+ *     description: Retrieve transaction log for a specified account, in cid, between start and end
+ *     parameters:
+ *       - in: query
+ *         name: start
+ *         required: true
+ *         description: Timestamp
+ *         schema:
+ *           type: string 
+ *       - in: query
+ *         name: end
+ *         required: true
+ *         description: Timestamp
+ *         schema:
+ *           type: string 
+*       - in: query
+ *         name: account
+ *         required: true
+ *         description: AccountId
+ *         schema:
+ *           type: string 
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - ApiKeyAuth: []  
+*/
 accounting.get("/transaction-log", async function (req, res, next) {
     try {
         const query = req.query;

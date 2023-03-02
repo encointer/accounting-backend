@@ -4,6 +4,37 @@ import express from "express";
 import { ENCOINTER_RPC } from "./consts.js";
 import v1 from "./api/v1.js";
 import cors from "cors";
+import swaggerJSDoc from "swagger-jsdoc";
+import swaggerUi from "swagger-ui-express";
+
+const swaggerDefinition = {
+    openapi: "3.0.0",
+    info: {
+        title: "Encointer API",
+        version: "1.0.0",
+    },
+};
+
+const options = {
+    swaggerDefinition,
+    // Paths to files containing OpenAPI definitions
+    apis: ["./index.js", "./api/*.js"],
+};
+
+const swaggerSpec = swaggerJSDoc(options);
+
+/**
+ * @swagger
+ * components:
+ *  securitySchemes:
+ *    ApiKeyAuth:
+ *      type: apiKey
+ *      in: header
+ *      name: Access-Token
+ *
+ * security:
+ *  - ApiKeyAuth: []
+ */
 
 async function main() {
     const wsProvider = new WsProvider(ENCOINTER_RPC);
@@ -33,6 +64,7 @@ async function main() {
     });
 
     app.use("/v1", v1);
+    app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
     app.listen(8081);
     console.log("App started!");
