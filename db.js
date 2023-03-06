@@ -1,4 +1,5 @@
 import { MongoClient } from "mongodb";
+import bcrypt from "bcrypt";
 
 class Database {
     constructor() {
@@ -9,6 +10,9 @@ class Database {
         this.dataCache = this.dbClient.db("data_cache");
         this.accountData = this.dataCache.collection("account_data");
         this.rewardsData = this.dataCache.collection("rewards_data");
+
+        this.main = this.dbClient.db("main");
+        this.users = this.main.collection("users");
     }
 
     async insertIntoAccountDataCache(account, year, month, data) {
@@ -22,7 +26,9 @@ class Database {
     }
 
     async getFromAccountDataCache(account, year) {
-        return (await (await this.accountData.find({ account, year })).toArray()).map(e => e.data);
+        return (
+            await (await this.accountData.find({ account, year })).toArray()
+        ).map((e) => e.data);
     }
 
     async insertIntoRewardsDataCache(cid, data) {
@@ -37,6 +43,22 @@ class Database {
 
     async getFromRewardsDataCache(cid) {
         return this.rewardsData.findOne({ cid });
+    }
+
+    async checkUserCredentials(address, password) {
+        const user = await this.users.findOne({ address });
+        if (!user) return null;
+        if (await bcrypt.compare(password, user.passwordHash)) return user;
+    }
+
+    async upsertUser(address, password, isAdmin = false) {
+        await this.users.replaceOne(
+            { address },
+            { address, passwordHash: await bcrypt.hash(password, 10), isAdmin },
+            {
+                upsert: true,
+            }
+        );
     }
 }
 

@@ -4,7 +4,7 @@ import {
     gatherAccountingOverview,
     gatherRewardsData,
     getDemurragePerBlock,
-    generateTxnLog
+    generateTxnLog,
 } from "../data.js";
 import { CIDS } from "../consts.js";
 import { parseEncointerBalance } from "@encointer/types";
@@ -12,7 +12,7 @@ import {
     gatherTransactionData,
     getBlockNumberByTimestamp,
 } from "../graphQl.js";
-import { validateAccountOrAdminToken, validateAdminToken } from "../apiUtil.js";
+import { validateAccountOrAdminToken } from "../apiUtil.js";
 
 const accounting = express.Router();
 
@@ -27,7 +27,7 @@ const accounting = express.Router();
  *         required: true
  *         description: AccountId
  *         schema:
- *           type: string 
+ *           type: string
  *       - in: query
  *         name: cid
  *         required: true
@@ -42,8 +42,8 @@ const accounting = express.Router();
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []  
-*/ 
+ *      - ApiKeyAuth: []
+ */
 accounting.get("/accounting-data", async function (req, res, next) {
     try {
         const api = req.app.get("api");
@@ -89,7 +89,7 @@ accounting.get("/accounting-data", async function (req, res, next) {
  *         required: true
  *         description: Timestamp
  *         schema:
- *           type: string 
+ *           type: string
  *       - in: query
  *         name: cid
  *         required: true
@@ -104,11 +104,11 @@ accounting.get("/accounting-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []  
-*/
+ *      - ApiKeyAuth: []
+ */
 accounting.get("/account-overview", async function (req, res, next) {
     try {
-        if (!validateAdminToken(req)) {
+        if (!req.auth.isAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -163,11 +163,11 @@ accounting.get("/account-overview", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []  
-*/
+ *      - ApiKeyAuth: []
+ */
 accounting.get("/tokens", async function (req, res, next) {
     try {
-        if (!validateAdminToken(req)) {
+        if (!req.auth.isAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -197,11 +197,11 @@ accounting.get("/tokens", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []  
-*/
+ *      - ApiKeyAuth: []
+ */
 accounting.get("/all-accounts-data", async function (req, res, next) {
     try {
-        if (!validateAdminToken(req)) {
+        if (!req.auth.isAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -260,11 +260,11 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []  
-*/
+ *      - ApiKeyAuth: []
+ */
 accounting.get("/rewards-data", async function (req, res, next) {
     try {
-        if (!validateAdminToken(req)) {
+        if (!req.auth.isAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -290,19 +290,19 @@ accounting.get("/rewards-data", async function (req, res, next) {
  *         required: true
  *         description: Timestamp
  *         schema:
- *           type: string 
+ *           type: string
  *       - in: query
  *         name: end
  *         required: true
  *         description: Timestamp
  *         schema:
- *           type: string 
-*       - in: query
+ *           type: string
+ *       - in: query
  *         name: account
  *         required: true
  *         description: AccountId
  *         schema:
- *           type: string 
+ *           type: string
  *       - in: query
  *         name: cid
  *         required: true
@@ -317,8 +317,8 @@ accounting.get("/rewards-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []  
-*/
+ *      - ApiKeyAuth: []
+ */
 accounting.get("/transaction-log", async function (req, res, next) {
     try {
         const query = req.query;

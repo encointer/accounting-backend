@@ -6,6 +6,7 @@ import v1 from "./api/v1.js";
 import cors from "cors";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
+import db from "./db.js";
 
 const swaggerDefinition = {
     openapi: "3.0.0",
@@ -45,11 +46,13 @@ async function main() {
         types: typesBundle.types[0].types,
     });
 
-
     const app = express();
     app.set("api", api);
 
     app.use(cors());
+
+    app.use(express.json());
+    app.use(express.urlencoded());
 
     app.use(function (req, res, next) {
         console.log("Received new request:", req.url);

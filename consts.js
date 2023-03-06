@@ -1,10 +1,8 @@
 import * as dotenv from "dotenv";
 dotenv.config();
 
-
 export const ENCOINTER_RPC =
     process.env.ENCOINTER_RPC || "wss://kusama.api.encointer.org";
-
 
 export const INDEXER_ENDPOINT =
     process.env.INDEXER_ENDPOINT || "http://localhost:3000";
@@ -36,4 +34,9 @@ export const CIDS = {
             },
         },
     },
+};
+
+export const JWT_CONFIG = {
+    secret: process.env.SECRET_KEY,
+    algorithms: ["HS256"],
 };
