@@ -52,7 +52,7 @@ auth.get("/login-as", async function (req, res, next) {
             res.sendStatus(403);
             return;
         }
-        const user = awaitdb.getUser(req.query.account);
+        const user = await db.getUser(req.query.account);
         req.session.address = user.address;
         req.session.isAdmin = user.isAdmin;
         res.sendStatus(200);
