@@ -6,7 +6,7 @@ import v1 from "./api/v1.js";
 import cors from "cors";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
-import db from "./db.js";
+import cookieSession from "cookie-session";
 
 const swaggerDefinition = {
     openapi: "3.0.0",
@@ -49,10 +49,23 @@ async function main() {
     const app = express();
     app.set("api", api);
 
-    app.use(cors());
+    var corsOptions = {
+        credentials: true,
+        origin: 'http://localhost:3000',
+        optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
+      }
+    app.use(cors(corsOptions));
 
     app.use(express.json());
     app.use(express.urlencoded());
+
+    app.use(cookieSession({
+        name: 'session',
+        keys: [process.env.SECRET_KEY],
+      
+        // Cookie Options
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      }))
 
     app.use(function (req, res, next) {
         console.log("Received new request:", req.url);

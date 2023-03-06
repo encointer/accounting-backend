@@ -1,9 +1,6 @@
 import express from "express";
-import { generateAccessToken } from "../apiUtil.js";
-import { JWT_CONFIG } from "../consts.js";
 import db from "../db.js";
 const auth = express.Router();
-import { expressjwt as jwt } from "express-jwt";
 
 auth.post("/authenticate", async function (req, res, next) {
     try {
@@ -14,10 +11,12 @@ auth.post("/authenticate", async function (req, res, next) {
             res.sendStatus(403);
             return;
         }
-
+        req.session.address = user.address;
+        req.session.isAdmin = user.isAdmin;
         res.send(
             JSON.stringify({
-                token: generateAccessToken(user.address, user.isAdmin),
+                address: user.address,
+                isAdmin: user.isAdmin,
             })
         );
     } catch (e) {
@@ -25,12 +24,12 @@ auth.post("/authenticate", async function (req, res, next) {
     }
 });
 
-auth.get("/me", jwt(JWT_CONFIG), async function (req, res, next) {
+auth.get("/me", async function (req, res, next) {
     try {
         res.send(
             JSON.stringify({
-                address: req.auth.address,
-                isAdmin: req.auth.isAdmin,
+                address: req.session.address,
+                isAdmin: req.session.isAdmin,
             })
         );
     } catch (e) {

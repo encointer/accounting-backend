@@ -35,8 +35,3 @@ export const CIDS = {
         },
     },
 };
-
-export const JWT_CONFIG = {
-    secret: process.env.SECRET_KEY,
-    algorithms: ["HS256"],
-};

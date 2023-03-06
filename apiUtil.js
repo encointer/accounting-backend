@@ -1,5 +1,4 @@
 import { CIDS } from "./consts.js";
-import jwt from "jsonwebtoken";
 
 export function validateAccountToken(account, cid, req) {
     return (
@@ -13,8 +12,4 @@ export function validateAdminToken(req) {
 
 export function validateAccountOrAdminToken(account, cid, req) {
     return validateAccountToken(account, cid, req) || validateAdminToken(req);
-}
-
-export function generateAccessToken(address, isAdmin=false) {
-    return jwt.sign({ address, isAdmin }, process.env.SECRET_KEY, { expiresIn: "1800s" });
 }
