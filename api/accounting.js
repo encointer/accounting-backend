@@ -108,7 +108,7 @@ accounting.get("/accounting-data", async function (req, res, next) {
  */
 accounting.get("/account-overview", async function (req, res, next) {
     try {
-        if (!req.auth.isAdmin) {
+        if (!req.session.isAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -167,7 +167,7 @@ accounting.get("/account-overview", async function (req, res, next) {
  */
 accounting.get("/tokens", async function (req, res, next) {
     try {
-        if (!req.auth.isAdmin) {
+        if (!req.session.isAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -201,7 +201,7 @@ accounting.get("/tokens", async function (req, res, next) {
  */
 accounting.get("/all-accounts-data", async function (req, res, next) {
     try {
-        if (!req.auth.isAdmin) {
+        if (!req.session.isAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -264,7 +264,7 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
  */
 accounting.get("/rewards-data", async function (req, res, next) {
     try {
-        if (!req.auth.isAdmin) {
+        if (!req.session.isAdmin) {
             res.sendStatus(403);
             return;
         }
