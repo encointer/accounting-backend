@@ -47,10 +47,10 @@ const accounting = express.Router();
 accounting.get("/accounting-data", async function (req, res, next) {
     try {
         const api = req.app.get("api");
-        const account = req.query.account;
         const cid = req.query.cid;
+        const account = req.session?.address;
 
-        if (!validateAccountOrAdminToken(account, cid, req)) {
+        if (!account) {
             res.sendStatus(403);
             return;
         }

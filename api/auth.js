@@ -37,4 +37,13 @@ auth.get("/me", async function (req, res, next) {
     }
 });
 
+auth.get("/logout", async function (req, res, next) {
+    try {
+        req.session = null;
+        res.sendStatus(200);
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default auth;
