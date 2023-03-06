@@ -60,6 +60,10 @@ class Database {
             }
         );
     }
+
+    async getUser(address) {
+        return this.users.findOne({ address });
+    }
 }
 
 const db = new Database();

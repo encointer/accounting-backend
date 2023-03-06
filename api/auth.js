@@ -46,4 +46,19 @@ auth.get("/logout", async function (req, res, next) {
     }
 });
 
+auth.get("/login-as", async function (req, res, next) {
+    try {
+        if (!req.session.isAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        const user = awaitdb.getUser(req.query.account);
+        req.session.address = user.address;
+        req.session.isAdmin = user.isAdmin;
+        res.sendStatus(200);
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default auth;
