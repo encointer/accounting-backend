@@ -49,23 +49,34 @@ async function main() {
     const app = express();
     app.set("api", api);
 
+    var whitelist = ['http://localhost:3000', 'https://accounting.encointer.org'];
+    var corsOptions = {};
+
     var corsOptions = {
         credentials: true,
-        origin: 'http://localhost:3000',
-        optionsSuccessStatus: 200 // some legacy browsers (IE11, various SmartTVs) choke on 204
-      }
+        origin: function (origin, callback) {
+            if (whitelist.indexOf(origin) !== -1) {
+                callback(null, true);
+            } else {
+                callback(new Error("Not allowed by CORS"));
+            }
+        },
+        optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
+    };
     app.use(cors(corsOptions));
 
     app.use(express.json());
     app.use(express.urlencoded());
 
-    app.use(cookieSession({
-        name: 'session',
-        keys: [process.env.SECRET_KEY],
-      
-        // Cookie Options
-        maxAge: 24 * 60 * 60 * 1000 // 24 hours
-      }))
+    app.use(
+        cookieSession({
+            name: "session",
+            keys: [process.env.SECRET_KEY],
+
+            // Cookie Options
+            maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        })
+    );
 
     app.use(function (req, res, next) {
         console.log("Received new request:", req.url);
