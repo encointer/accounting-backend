@@ -51,6 +51,7 @@ class Database {
         const user = await this.users.findOne({ address });
         if (!user) return null;
         if (await bcrypt.compare(password, user.passwordHash)) return user;
+        return null
     }
 
     async upsertUser(address, password, name, isAdmin = false) {
@@ -65,6 +66,13 @@ class Database {
             {
                 upsert: true,
             }
+        );
+    }
+
+    async setPassword(address, password) {
+        await this.users.updateOne(
+            { address },
+            { $set: { passwordHash: await bcrypt.hash(password, 10) } }
         );
     }
 

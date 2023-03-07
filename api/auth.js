@@ -61,6 +61,23 @@ auth.get("/login-as", async function (req, res, next) {
     }
 });
 
+auth.post("/change-password", async function (req, res, next) {
+    try {
+        const address = req.session.address;
+        const password = req.body.password;
+        const newPassword = req.body.newPassword;
+        const user = await db.checkUserCredentials(address, password);
+        if (!user || !db.checkUserCredentials(address, password)) {
+            res.sendStatus(403);
+            return;
+        }
+        await db.setPassword(address, newPassword);
+        res.sendStatus(200);
+    } catch (e) {
+        next(e);
+    }
+});
+
 auth.post("/users", async function (req, res, next) {
     try {
         if (!req.session.isAdmin) {
