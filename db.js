@@ -17,19 +17,19 @@ class Database {
         this.communities = this.main.collection("communities");
     }
 
-    async insertIntoAccountDataCache(account, year, month, data) {
+    async insertIntoAccountDataCache(account, year, month, cid, data) {
         await this.accountData.replaceOne(
-            { account, year, month },
-            { account, year, month, data },
+            { account, year, month, cid },
+            { account, year, month, cid, data },
             {
                 upsert: true,
             }
         );
     }
 
-    async getFromAccountDataCache(account, year) {
+    async getFromAccountDataCache(account, year, cid) {
         return (
-            await (await this.accountData.find({ account, year })).toArray()
+            await (await this.accountData.find({ account, year, cid })).toArray()
         ).map((e) => e.data);
     }
 

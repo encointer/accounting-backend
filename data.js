@@ -1,5 +1,4 @@
 import { parseEncointerBalance } from "@encointer/types";
-import { parse } from "dotenv";
 import db from "./db.js";
 import {
     gatherTransactionData,
@@ -9,7 +8,7 @@ import {
 import { getMonthName, parseCid } from "./util.js";
 
 export async function gatherAccountingOverview(api, account, cid, year, month) {
-    const cachedData = await db.getFromAccountDataCache(account, year);
+    const cachedData = await db.getFromAccountDataCache(account, year, cid);
     const data = [];
     for (let i = 0; i < month; i++) {
         const cachedMonthItem = cachedData?.filter((e) => e.month === i)?.[0];
@@ -24,7 +23,7 @@ export async function gatherAccountingOverview(api, account, cid, year, month) {
                 i
             );
             data.push(accountingData);
-            db.insertIntoAccountDataCache(account, year, i, accountingData);
+            db.insertIntoAccountDataCache(account, year, i, cid, accountingData);
         }
     }
     data.push(await getAccountingData(api, account, cid, year, month));

@@ -196,18 +196,25 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
         const month = now.getUTCMonth();
 
         const data = [];
+
         for (const user of users) {
-            data.push({
-                name: user.name,
-                data: await gatherAccountingOverview(
-                    api,
-                    user.address,
-                    cid,
-                    year,
-                    month
-                ),
-            });
+            try {
+                data.push({
+                    name: user.name,
+                    data: await gatherAccountingOverview(
+                        api,
+                        user.address,
+                        cid,
+                        year,
+                        month
+                    ),
+                });
+            } catch (err) {
+                console.log(err);
+                continue;
+            }
         }
+
         res.send(
             JSON.stringify({
                 data,
