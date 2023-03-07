@@ -109,4 +109,20 @@ auth.get("/users", async function (req, res, next) {
     }
 });
 
+auth.patch("/users", async function (req, res, next) {
+    try {
+        if (!req.session.isAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        const address = req.body.address;
+        const name = req.body.name;
+        const cids = req.body.cids;
+        await db.updateUser(address, name, cids);
+        res.sendStatus(200);
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default auth;

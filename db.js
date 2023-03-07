@@ -68,22 +68,28 @@ class Database {
         );
     }
 
+    async addUserToCommunities(address, cids) {
+        await this.communities.updateMany(
+            { cid: { $in: cids } },
+            { $push: { accounts: address } }
+        );
+    }
+
+    async removeUserFromAllCommunities(address) {
+        await this.communities.updateMany({}, { $pull: { accounts: address } });
+    }
+
     async createUser(address, name, cids) {
         if (await this.getUser(address)) throw Error("User Exists");
         const password = getRandomPassword();
         this.upsertUser(address, password, name);
-        for (const cid of cids) {
-            this.communities.updateOne(
-                { cid },
-                { $push: { accounts: address } }
-            );
-        }
+        this.addUserToCommunities(address, cids);
         return password;
     }
 
     async deleteUser(address) {
         await this.users.deleteOne({ address });
-        await this.communities.updateMany({}, { $pull: { accounts: address } });
+        await this.removeUserFromAllCommunities(address);
     }
 
     async getUser(address) {
@@ -91,6 +97,12 @@ class Database {
             { address },
             { projection: { address: 1, name: 1, isAdmin: 1, _id: 0 } }
         );
+    }
+
+    async updateUser(address, name, cids) {
+        await this.users.updateOne({ address }, { $set: { name } });
+        await this.removeUserFromAllCommunities(address);
+        await this.addUserToCommunities(address, cids);
     }
 
     async getAllUsers() {
