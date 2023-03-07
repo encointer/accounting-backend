@@ -6,13 +6,13 @@ import {
     getDemurragePerBlock,
     generateTxnLog,
 } from "../data.js";
-import { CIDS } from "../consts.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
     gatherTransactionData,
     getBlockNumberByTimestamp,
 } from "../graphQl.js";
-import { validateAccountOrAdminToken } from "../apiUtil.js";
+import db from "../db.js";
+import { parseCid } from "../util.js";
 
 const accounting = express.Router();
 
@@ -54,6 +54,10 @@ accounting.get("/accounting-data", async function (req, res, next) {
             res.sendStatus(403);
             return;
         }
+
+        const user = await db.getUser(account);
+        const community = await db.getCommunity(cid);
+
         const now = new Date();
         const year = now.getUTCFullYear();
         const month = now.getUTCMonth();
@@ -68,8 +72,8 @@ accounting.get("/accounting-data", async function (req, res, next) {
         res.send(
             JSON.stringify({
                 data,
-                communityName: CIDS[cid].name,
-                name: CIDS[cid].accounts[account]?.name || "",
+                communityName: community.name,
+                name: user.name,
                 year,
             })
         );
@@ -116,12 +120,13 @@ accounting.get("/account-overview", async function (req, res, next) {
         const api = req.app.get("api");
         const timestamp = req.query.timestamp;
         const cid = req.query.cid;
-        const cidData = CIDS[cid];
-        const cidDecoded = cidData.cidDecoded;
-        const communityName = cidData.name;
+        const cidDecoded = parseCid(cid);
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
         const blockNumber = await getBlockNumberByTimestamp(timestamp);
         const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
         const apiAt = await api.at(blockHash);
+        const allUsers = await db.getAllUsers();
         let entries = (
             await apiAt.query.encointerBalances.balance.entries()
         ).map((e) => ({ key: e[0].toHuman(), value: e[1] }));
@@ -137,7 +142,7 @@ accounting.get("/account-overview", async function (req, res, next) {
             )
             .map((e) => ({
                 account: e.key[1],
-                accountName: cidData.accounts[e.key[1]]?.name,
+                accountName: allUsers.find((u) => u.address === e.key[1])?.name,
                 balance: applyDemurrage(
                     parseEncointerBalance(e.value.principal.bits),
                     blockNumber - e.value.lastUpdate.toNumber(),
@@ -145,33 +150,6 @@ accounting.get("/account-overview", async function (req, res, next) {
                 ),
             }));
         res.send(JSON.stringify({ data: entries, communityName }));
-    } catch (e) {
-        next(e);
-    }
-});
-
-/**
- * @swagger
- * /v1/accounting/tokens:
- *   get:
- *     description: Retrieve all access tokens of businesses
- *     tags:
- *       - accounting
- *     responses:
- *          '200':
- *              description: Success
- *          '403':
- *              description: Permission denied
- *     security:
- *      - ApiKeyAuth: []
- */
-accounting.get("/tokens", async function (req, res, next) {
-    try {
-        if (!req.session.isAdmin) {
-            res.sendStatus(403);
-            return;
-        }
-        res.send(JSON.stringify(CIDS));
     } catch (e) {
         next(e);
     }
@@ -207,21 +185,23 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
         }
         const api = req.app.get("api");
         const cid = req.query.cid;
-        const cidData = CIDS[cid];
-        const communityName = cidData.name;
-        const accounts = cidData.accounts;
+
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
+
+        const users = await db.getCommunityUsers(cid);
 
         const now = new Date();
         const year = now.getUTCFullYear();
         const month = now.getUTCMonth();
 
         const data = [];
-        for (const [account, accountInfo] of Object.entries(accounts)) {
+        for (const user of users) {
             data.push({
-                name: accountInfo.name,
+                name: user.name,
                 data: await gatherAccountingOverview(
                     api,
-                    account,
+                    user.address,
                     cid,
                     year,
                     month
@@ -270,10 +250,12 @@ accounting.get("/rewards-data", async function (req, res, next) {
         }
         const api = req.app.get("api");
         const cid = req.query.cid;
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
 
         const data = await gatherRewardsData(api, cid);
 
-        res.send(JSON.stringify({ data, communityName: CIDS[cid].name }));
+        res.send(JSON.stringify({ data, communityName: communityName }));
     } catch (e) {
         next(e);
     }

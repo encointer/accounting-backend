@@ -13,6 +13,7 @@ class Database {
 
         this.main = this.dbClient.db("main");
         this.users = this.main.collection("users");
+        this.communities = this.main.collection("communities");
     }
 
     async insertIntoAccountDataCache(account, year, month, data) {
@@ -63,6 +64,19 @@ class Database {
 
     async getUser(address) {
         return this.users.findOne({ address });
+    }
+
+    async getAllUsers() {
+        return this.users.find().toArray();
+    }
+
+    async getCommunityUsers(cid) {
+        const community = await this.getCommunity(cid);
+        return this.users.find({ address: { $in: community.accounts } }).toArray();
+    }
+
+    async getCommunity(cid) {
+        return this.communities.findOne({ cid });
     }
 }
 

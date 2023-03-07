@@ -1,12 +1,12 @@
 import { parseEncointerBalance } from "@encointer/types";
-import { CIDS } from "./consts.js";
+import { parse } from "dotenv";
 import db from "./db.js";
 import {
     gatherTransactionData,
     getRewardsIssueds,
     getBlockNumberByTimestamp,
 } from "./graphQl.js";
-import { getMonthName } from "./util.js";
+import { getMonthName, parseCid } from "./util.js";
 
 export async function gatherAccountingOverview(api, account, cid, year, month) {
     const cachedData = await db.getFromAccountDataCache(account, year);
@@ -76,7 +76,7 @@ export function applyDemurrage(principal, elapsedBlocks, demurragePerBlock) {
 
 async function getDemurrageAdjustedBalance(api, address, cid, blockNumber) {
     const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
-    const cidDecoded = CIDS[cid].cidDecoded;
+    const cidDecoded = parseCid(cid);
     let balanceEntry = await getBalance(api, cidDecoded, address, blockHash);
 
     const demurragePerBlock = await getDemurragePerBlock(
@@ -148,8 +148,7 @@ export async function getAccountingData(api, account, cid, year, month) {
 }
 
 export async function gatherRewardsData(api, cid) {
-    const cidData = CIDS[cid];
-    const cidDecoded = cidData.cidDecoded;
+    const cidDecoded = parseCid(cid);
     const rewardsIssueds = await getRewardsIssueds(cid);
 
     // sorting is important for chaching

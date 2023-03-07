@@ -7,6 +7,7 @@ import cors from "cors";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import cookieSession from "cookie-session";
+import { parseCid } from "./util.js";
 
 const swaggerDefinition = {
     openapi: "3.0.0",
