@@ -61,4 +61,52 @@ auth.get("/login-as", async function (req, res, next) {
     }
 });
 
+auth.post("/users", async function (req, res, next) {
+    try {
+        if (!req.session.isAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        const address = req.body.address;
+        const cids = req.body.cids;
+        const name = req.body.name;
+        const password = await db.createUser(address, name, cids);
+
+        res.send(
+            JSON.stringify({
+                address,
+                password,
+            })
+        );
+    } catch (e) {
+        next(e);
+    }
+});
+
+auth.delete("/users", async function (req, res, next) {
+    try {
+        if (!req.session.isAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        const address = req.body.address;
+        await db.deleteUser(address);
+        res.sendStatus(200);
+    } catch (e) {
+        next(e);
+    }
+});
+
+auth.get("/users", async function (req, res, next) {
+    try {
+        if (!req.session.isAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        res.send(JSON.stringify(await db.getAllUsers()));
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default auth;

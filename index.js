@@ -7,7 +7,6 @@ import cors from "cors";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import cookieSession from "cookie-session";
-import { parseCid } from "./util.js";
 
 const swaggerDefinition = {
     openapi: "3.0.0",
@@ -46,11 +45,25 @@ async function main() {
         signedExtensions: typesBundle.signedExtensions,
         types: typesBundle.types[0].types,
     });
-
     const app = express();
     app.set("api", api);
 
-    var whitelist = ['http://localhost:3000', 'https://accounting.encointer.org'];
+    app.use(function (req, res, next) {
+        console.log("Received new request:", req.url);
+        var send = res.send;
+        res.send = function (body) {
+            console.log(
+                `Sending response for: ${req.url} with status ${this.statusCode}`
+            );
+            send.call(this, body);
+        };
+        next();
+    });
+
+    var whitelist = [
+        "http://localhost:3000",
+        "https://accounting.encointer.org",
+    ];
     var corsOptions = {};
 
     var corsOptions = {
@@ -78,18 +91,6 @@ async function main() {
             maxAge: 24 * 60 * 60 * 1000, // 24 hours
         })
     );
-
-    app.use(function (req, res, next) {
-        console.log("Received new request:", req.url);
-        var send = res.send;
-        res.send = function (body) {
-            console.log(
-                `Sending response for: ${req.url} with status ${this.statusCode}`
-            );
-            send.call(this, body);
-        };
-        next();
-    });
 
     app.use("/v1", v1);
     app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

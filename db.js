@@ -1,5 +1,6 @@
 import { MongoClient } from "mongodb";
 import bcrypt from "bcrypt";
+import { getRandomPassword } from "./util.js";
 
 class Database {
     constructor() {
@@ -52,31 +53,70 @@ class Database {
         if (await bcrypt.compare(password, user.passwordHash)) return user;
     }
 
-    async upsertUser(address, password, isAdmin = false) {
+    async upsertUser(address, password, name, isAdmin = false) {
         await this.users.replaceOne(
             { address },
-            { address, passwordHash: await bcrypt.hash(password, 10), isAdmin },
+            {
+                address,
+                name,
+                passwordHash: await bcrypt.hash(password, 10),
+                isAdmin,
+            },
             {
                 upsert: true,
             }
         );
     }
 
+    async createUser(address, name, cids) {
+        if (await this.getUser(address)) throw Error("User Exists");
+        const password = getRandomPassword();
+        this.upsertUser(address, password, name);
+        for (const cid of cids) {
+            this.communities.updateOne(
+                { cid },
+                { $push: { accounts: address } }
+            );
+        }
+        return password;
+    }
+
+    async deleteUser(address) {
+        await this.users.deleteOne({ address });
+        await this.communities.updateMany({}, { $pull: { accounts: address } });
+    }
+
     async getUser(address) {
-        return this.users.findOne({ address });
+        return this.users.findOne(
+            { address },
+            { projection: { address: 1, name: 1, isAdmin: 1, _id: 0 } }
+        );
     }
 
     async getAllUsers() {
-        return this.users.find().toArray();
+        return this.users
+            .find(
+                {},
+                { projection: { address: 1, name: 1, isAdmin: 1, _id: 0 } }
+            )
+            .toArray();
     }
 
     async getCommunityUsers(cid) {
         const community = await this.getCommunity(cid);
-        return this.users.find({ address: { $in: community.accounts } }).toArray();
+        return this.users
+            .find({ address: { $in: community.accounts } })
+            .toArray();
     }
 
     async getCommunity(cid) {
         return this.communities.findOne({ cid });
+    }
+
+    async getAllCommunities() {
+        return this.communities
+            .find({}, { projection: { cid: 1, name: 1, _id: 0 } })
+            .toArray();
     }
 }
 
