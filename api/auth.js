@@ -13,10 +13,12 @@ auth.post("/authenticate", async function (req, res, next) {
         }
         req.session.address = user.address;
         req.session.isAdmin = user.isAdmin;
+        req.session.name = user.name;
         res.send(
             JSON.stringify({
                 address: user.address,
                 isAdmin: user.isAdmin,
+                name: user.name,
             })
         );
     } catch (e) {
@@ -30,6 +32,7 @@ auth.get("/me", async function (req, res, next) {
             JSON.stringify({
                 address: req.session.address,
                 isAdmin: req.session.isAdmin,
+                name: req.session.name,
             })
         );
     } catch (e) {
@@ -55,6 +58,7 @@ auth.get("/login-as", async function (req, res, next) {
         const user = await db.getUser(req.query.account);
         req.session.address = user.address;
         req.session.isAdmin = user.isAdmin;
+        req.session.name = user.name;
         res.sendStatus(200);
     } catch (e) {
         next(e);
