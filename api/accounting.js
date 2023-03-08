@@ -24,12 +24,6 @@ const accounting = express.Router();
  *     description: Retrieve aggregated accounting data for a given cid and user
  *     parameters:
  *       - in: query
- *         name: account
- *         required: true
- *         description: AccountId
- *         schema:
- *           type: string
- *       - in: query
  *         name: cid
  *         required: true
  *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
