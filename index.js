@@ -20,7 +20,7 @@ const options = {
     swaggerDefinition,
     // Paths to files containing OpenAPI definitions
     apis: ["./index.js", "./api/*.js"],
-    requestInterceptor: function(request){
+    requestInterceptor: function (request) {
         request.headers.Origin = `http://localhost:3000`;
         return request;
     },
