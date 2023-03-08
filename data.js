@@ -198,20 +198,16 @@ export async function getSelectedRangeData(api, account, cid, start, end) {
     };
 }
 
-export async function gatherRewardsData(api, cid) {
+async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
     const cidDecoded = parseCid(cid);
-    const rewardsIssueds = await getRewardsIssueds(cid);
 
     // sorting is important for chaching
+    // such that we can stop processing the events as soon
+    // as the data from the given cycle is in the cache
     rewardsIssueds.sort((a, b) => b.timestamp - a.timestamp);
-
-    const currentCindex = (
-        await api.query.encointerScheduler.currentCeremonyIndex()
-    ).toNumber();
 
     const rewardsIssuedsWithCindexAndNominalIncome = [];
 
-    const cachedData = (await db.getFromRewardsDataCache(cid))?.data;
     for (const issueEvent of rewardsIssueds) {
         // exclude rescue action event
         if (issueEvent.id === "1063138-1") continue;
@@ -233,21 +229,40 @@ export async function gatherRewardsData(api, cid) {
         if (cachedData && cindex.toString() in cachedData) break;
         rewardsIssuedsWithCindexAndNominalIncome.push(issueEvent);
     }
+    return rewardsIssuedsWithCindexAndNominalIncome;
+}
 
-    const newData = rewardsIssuedsWithCindexAndNominalIncome.reduce(
-        (acc, cur) => {
-            const cindex = cur.cindex;
-            const numParticipants = parseInt(cur.arg2);
-            const nominalIncome = cur.nominalIncome;
-            acc[cindex] = acc[cindex] || {};
-            acc[cindex].numParticipants =
-                (acc[cindex].numParticipants || 0) + numParticipants;
-            acc[cindex].totalRewards =
-                (acc[cindex].totalRewards || 0) +
-                numParticipants * nominalIncome;
-            return acc;
-        },
-        {}
+function reduceRewardsIssuedsWithCindexAndNominalIncome(data) {
+    return data.reduce((acc, cur) => {
+        const cindex = cur.cindex;
+        const numParticipants = parseInt(cur.arg2);
+        const nominalIncome = cur.nominalIncome;
+        acc[cindex] = acc[cindex] || {};
+        acc[cindex].numParticipants =
+            (acc[cindex].numParticipants || 0) + numParticipants;
+        acc[cindex].totalRewards =
+            (acc[cindex].totalRewards || 0) + numParticipants * nominalIncome;
+        return acc;
+    }, {});
+}
+
+export async function gatherRewardsData(api, cid) {
+    const rewardsIssueds = await getRewardsIssueds(cid);
+    const currentCindex = (
+        await api.query.encointerScheduler.currentCeremonyIndex()
+    ).toNumber();
+
+    const cachedData = (await db.getFromRewardsDataCache(cid))?.data;
+
+    const rewardsIssuedsWithCindexAndNominalIncome = await enrichRewardsIssueds(
+        api,
+        rewardsIssueds,
+        cachedData,
+        cid
+    );
+
+    const newData = reduceRewardsIssuedsWithCindexAndNominalIncome(
+        rewardsIssuedsWithCindexAndNominalIncome
     );
 
     let result = newData;
