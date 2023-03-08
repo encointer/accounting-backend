@@ -43,6 +43,10 @@ async function getTransfers(start, end, address, cid, direction) {
           arg2
           arg3
           }
+          pageInfo {
+            endCursor
+            hasNextPage
+          }
         }
       }`;
 
@@ -59,6 +63,10 @@ async function getIssues(start, end, address, cid) {
           arg0
           arg1
           arg2
+          }
+          pageInfo {
+            endCursor
+            hasNextPage
           }
         }
       }`;
@@ -90,7 +98,7 @@ export async function getRewardsIssueds(cid) {
 export async function getAllPages(query, variables) {
     let response, data;
     const result = [];
-    variables.after = '';
+    variables.after = "";
     do {
         response = await graphQlQuery(query, variables);
         data = Object.values(response)[0];
@@ -98,7 +106,7 @@ export async function getAllPages(query, variables) {
         variables.after = data?.pageInfo?.endCursor;
     } while (data?.pageInfo?.hasNextPage);
 
-    return result
+    return result;
 }
 
 export async function gatherTransactionData(start, end, address, cid) {
@@ -108,7 +116,7 @@ export async function gatherTransactionData(start, end, address, cid) {
     // hack to exclude cid fuckup transactions
     // incoming = incoming.filter((e) => !excludeEvents.includes(e.id));
 
-    const issues = await getIssues(start, end, address, cid)
+    const issues = await getIssues(start, end, address, cid);
 
     const sumIssues = issues.reduce((acc, cur) => acc + cur.arg2, 0);
     const sumIncoming = incoming.reduce((acc, cur) => acc + cur.arg3, 0);
