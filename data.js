@@ -23,7 +23,13 @@ export async function gatherAccountingOverview(api, account, cid, year, month) {
                 i
             );
             data.push(accountingData);
-            db.insertIntoAccountDataCache(account, year, i, cid, accountingData);
+            db.insertIntoAccountDataCache(
+                account,
+                year,
+                i,
+                cid,
+                accountingData
+            );
         }
     }
     data.push(await getAccountingData(api, account, cid, year, month));
@@ -146,6 +152,52 @@ export async function getAccountingData(api, account, cid, year, month) {
     };
 }
 
+export async function getSelectedRangeData(api, account, cid, start, end) {
+    const [
+        incoming,
+        outgoing,
+        issues,
+        sumIncoming,
+        sumOutgoing,
+        sumIssues,
+        numDistinctClients,
+    ] = await gatherTransactionData(start, end, account, cid);
+
+    const txnLog = generateTxnLog(incoming, outgoing, issues);
+    const dailyDigest = generateDailyDigestFromTxnLog(txnLog);
+
+    const startBalance = await getDemurrageAdjustedBalance(
+        api,
+        account,
+        cid,
+        await getBlockNumberByTimestamp(start)
+    );
+
+    const endBalance = await getDemurrageAdjustedBalance(
+        api,
+        account,
+        cid,
+        await getBlockNumberByTimestamp(end)
+    );
+
+    return {
+        dailyDigest,
+        startBalance,
+        endBalance,
+        incomeMinusExpenses: sumIncoming - sumOutgoing,
+        sumIssues,
+        numIncoming: incoming.length,
+        numOutgoing: outgoing.length,
+        sumIncoming,
+        sumOutgoing,
+        numIssues: issues.length,
+        numDistinctClients,
+        costDemurrage:
+            startBalance + sumIncoming - sumOutgoing + sumIssues - endBalance,
+        avgTxnValue: incoming.length > 0 ? sumIncoming / incoming.length : 0,
+    };
+}
+
 export async function gatherRewardsData(api, cid) {
     const cidDecoded = parseCid(cid);
     const rewardsIssueds = await getRewardsIssueds(cid);
@@ -199,8 +251,7 @@ export async function gatherRewardsData(api, cid) {
     );
 
     let result = newData;
-    if (cachedData)
-        result = { ...result, ...cachedData };
+    if (cachedData) result = { ...result, ...cachedData };
 
     // cache only data that is sure not to change anymore
     const dataToBeCached = Object.fromEntries(

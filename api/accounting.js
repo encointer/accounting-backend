@@ -5,6 +5,7 @@ import {
     gatherRewardsData,
     getDemurragePerBlock,
     generateTxnLog,
+    getSelectedRangeData,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -75,6 +76,75 @@ accounting.get("/accounting-data", async function (req, res, next) {
                 communityName: community.name,
                 name: user.name,
                 year,
+            })
+        );
+    } catch (e) {
+        next(e);
+    }
+});
+
+/**
+ * @swagger
+ * /v1/accounting/selected-range-data:
+ *   get:
+ *     description: Retrieve start balance, end balance and daily digest for a certain time range
+ *     parameters:
+ *       - in: query
+ *         name: account
+ *         required: true
+ *         description: AccountId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: end
+ *         required: true
+ *         description:  timestamp
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: timestamp
+ *         schema:
+ *           type: number
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - ApiKeyAuth: []
+ */
+accounting.get("/selected-range-data", async function (req, res, next) {
+    try {
+        const api = req.app.get("api");
+        const cid = req.query.cid;
+        const start = req.query.start;
+        const end = req.query.end;
+        const account = req.session?.address;
+
+        if (!account) {
+            res.sendStatus(403);
+            return;
+        }
+
+        const user = await db.getUser(account);
+        const community = await db.getCommunity(cid);
+
+        const data = await getSelectedRangeData(api, account, cid, start, end);
+        res.send(
+            JSON.stringify({
+                data,
+                communityName: community.name,
+                name: user.name,
             })
         );
     } catch (e) {
