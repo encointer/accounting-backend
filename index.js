@@ -20,6 +20,10 @@ const options = {
     swaggerDefinition,
     // Paths to files containing OpenAPI definitions
     apis: ["./index.js", "./api/*.js"],
+    requestInterceptor: function(request){
+        request.headers.Origin = `http://localhost:3000`;
+        return request;
+    },
 };
 
 const swaggerSpec = swaggerJSDoc(options);
@@ -28,13 +32,13 @@ const swaggerSpec = swaggerJSDoc(options);
  * @swagger
  * components:
  *  securitySchemes:
- *    ApiKeyAuth:
+ *    cookieAuth:
  *      type: apiKey
- *      in: header
- *      name: Access-Token
+ *      in: cookie
+ *      name: session
  *
  * security:
- *  - ApiKeyAuth: []
+ *  - cookieAuth: []
  */
 
 async function main() {
@@ -60,6 +64,8 @@ async function main() {
         next();
     });
 
+    app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
     var whitelist = [
         "http://localhost:3000",
         "https://accounting.encointer.org",
@@ -69,11 +75,12 @@ async function main() {
     var corsOptions = {
         credentials: true,
         origin: function (origin, callback) {
-            if (whitelist.indexOf(origin) !== -1) {
-                callback(null, true);
-            } else {
-                callback(new Error("Not allowed by CORS"));
-            }
+            callback(null, true);
+            // if (whitelist.indexOf(origin) !== -1) {
+            //     callback(null, true);
+            // } else {
+            //     callback(new Error("Not allowed by CORS"));
+            // }
         },
         optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
     };
@@ -93,7 +100,6 @@ async function main() {
     );
 
     app.use("/v1", v1);
-    app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
     app.listen(8081);
     console.log("App started!");

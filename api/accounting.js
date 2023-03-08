@@ -43,7 +43,7 @@ const accounting = express.Router();
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []
+ *      - cookieAuth: []
  */
 accounting.get("/accounting-data", async function (req, res, next) {
     try {
@@ -121,7 +121,7 @@ accounting.get("/accounting-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []
+ *      - cookieAuth: []
  */
 accounting.get("/selected-range-data", async function (req, res, next) {
     try {
@@ -178,7 +178,7 @@ accounting.get("/selected-range-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []
+ *      - cookieAuth: []
  */
 accounting.get("/account-overview", async function (req, res, next) {
     try {
@@ -245,7 +245,7 @@ accounting.get("/account-overview", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []
+ *      - cookieAuth: []
  */
 accounting.get("/all-accounts-data", async function (req, res, next) {
     try {
@@ -317,7 +317,7 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  *     security:
- *      - ApiKeyAuth: []
+ *      - cookieAuth: []
  */
 accounting.get("/rewards-data", async function (req, res, next) {
     try {
@@ -375,8 +375,6 @@ accounting.get("/rewards-data", async function (req, res, next) {
  *              description: Success
  *          '403':
  *              description: Permission denied
- *     security:
- *      - ApiKeyAuth: []
  */
 accounting.get("/transaction-log", async function (req, res, next) {
     try {
