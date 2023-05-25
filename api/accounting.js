@@ -308,17 +308,9 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
  *     responses:
  *          '200':
  *              description: Success
- *          '403':
- *              description: Permission denied
- *     security:
- *      - cookieAuth: []
  */
 accounting.get("/rewards-data", async function (req, res, next) {
     try {
-        if (!req.session.isAdmin) {
-            res.sendStatus(403);
-            return;
-        }
         const api = req.app.get("api");
         const cid = req.query.cid;
         const community = await db.getCommunity(cid);
