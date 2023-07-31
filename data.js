@@ -5,12 +5,14 @@ import {
     getRewardsIssueds,
     getBlockNumberByTimestamp,
 } from "./graphQl.js";
-import { getMonthName, parseCid } from "./util.js";
+import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
 export async function gatherAccountingOverview(api, account, cid, year, month) {
     const cachedData = await db.getFromAccountDataCache(account, year, cid);
     const data = [];
-    for (let i = 0; i < month; i++) {
+    // encointer started in june 2022
+    const startMonth = year === 2022 ? 5 : 0
+    for (let i = startMonth; i < month; i++) {
         const cachedMonthItem = cachedData?.filter((e) => e.month === i)?.[0];
         if (cachedMonthItem) {
             data.push(cachedMonthItem);
@@ -199,7 +201,6 @@ export async function getSelectedRangeData(api, account, cid, start, end) {
 }
 
 async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
-    const cidDecoded = parseCid(cid);
 
     // sorting is important for chaching
     // such that we can stop processing the events as soon
@@ -209,22 +210,25 @@ async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
     const rewardsIssuedsWithCindexAndNominalIncome = [];
 
     for (const issueEvent of rewardsIssueds) {
-        // exclude rescue action event
-        if (issueEvent.id === "1063138-1") continue;
         const h = await api.rpc.chain.getBlockHash(issueEvent.blockHeight);
         const apiAt = await api.at(h);
+
+        let mappedCid = mapRescueCids(cid, parseInt(issueEvent.blockHeight));
+        const cidDecoded = parseCid(mappedCid);
 
         let [nominalIncome, cindex, phase] = await apiAt.queryMulti([
             [apiAt.query.encointerCommunities.nominalIncome, cidDecoded],
             [apiAt.query.encointerScheduler.currentCeremonyIndex],
             [apiAt.query.encointerScheduler.currentPhase],
         ]);
-
         cindex = cindex.toNumber();
+
 
         issueEvent.cindex =
             phase.toHuman() === "Registering" ? cindex - 1 : cindex;
         issueEvent.nominalIncome = parseEncointerBalance(nominalIncome.bits);
+        // we patch this because on chain the nominal income was not set during the first rescue ceremonie
+        if (parseInt(issueEvent.blockHeight) === 808023) issueEvent.nominalIncome = 22;
 
         if (cachedData && cindex.toString() in cachedData) break;
         rewardsIssuedsWithCindexAndNominalIncome.push(issueEvent);

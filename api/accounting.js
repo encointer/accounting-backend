@@ -54,8 +54,10 @@ accounting.get("/accounting-data", async function (req, res, next) {
         const community = await db.getCommunity(cid);
 
         const now = new Date();
-        const year = now.getUTCFullYear();
-        const month = now.getUTCMonth();
+        const yearNow = now.getUTCFullYear();
+        let month = now.getUTCMonth();
+        const year = parseInt(req.query.year || yearNow);
+        if (year < yearNow) month = 11;
 
         const data = await gatherAccountingOverview(
             api,
@@ -254,10 +256,11 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
         const communityName = community.name;
 
         const users = await db.getCommunityUsers(cid);
-
         const now = new Date();
-        const year = now.getUTCFullYear();
-        const month = now.getUTCMonth();
+        const yearNow = now.getUTCFullYear();
+        let month = now.getUTCMonth();
+        const year = parseInt(req.query.year || yearNow);
+        if (year < yearNow) month = 11;
 
         const data = [];
 
