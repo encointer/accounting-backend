@@ -251,6 +251,7 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
         }
         const api = req.app.get("api");
         const cid = req.query.cid;
+        const includeCurrentMonth = req.query.includeCurrentMonth;
 
         const community = await db.getCommunity(cid);
         const communityName = community.name;
@@ -273,7 +274,8 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
                         user.address,
                         cid,
                         year,
-                        month
+                        month,
+                        includeCurrentMonth
                     ),
                 });
             } catch (err) {

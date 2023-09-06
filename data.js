@@ -7,13 +7,14 @@ import {
 } from "./graphQl.js";
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
-export async function gatherAccountingOverview(api, account, cid, year, month) {
+export async function gatherAccountingOverview(api, account, cid, year, month, includeCurrentMonth=false) {
     const cachedData = await db.getFromAccountDataCache(account, year, cid);
     const data = [];
     // encointer started in june 2022
     const startMonth = year === 2022 ? 5 : 0
     for (let i = startMonth; i < month; i++) {
         const cachedMonthItem = cachedData?.filter((e) => e.month === i)?.[0];
+        
         if (cachedMonthItem) {
             data.push(cachedMonthItem);
         } else {
@@ -34,7 +35,7 @@ export async function gatherAccountingOverview(api, account, cid, year, month) {
             );
         }
     }
-    data.push(await getAccountingData(api, account, cid, year, month));
+    if(includeCurrentMonth) data.push(await getAccountingData(api, account, cid, year, month));
     return data;
 }
 
