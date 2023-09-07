@@ -6,6 +6,7 @@ import {
     getDemurragePerBlock,
     generateTxnLog,
     getSelectedRangeData,
+    getMoneyVelocity,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -385,6 +386,63 @@ accounting.get("/transaction-log", async function (req, res, next) {
         const txnLog = generateTxnLog(incoming, outgoing, issues);
 
         res.send(JSON.stringify(txnLog));
+    } catch (e) {
+        next(e);
+    }
+});
+
+/**
+ * @swagger
+ * /v1/accounting/money-velocity-report:
+ *   get:
+ *     description: Retrieve money velocity report for a specified cid and year
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         required: false
+ *         description: Year
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ */
+accounting.get("/money-velocity-report", async function (req, res, next) {
+    try {
+        const api = req.app.get("api");
+        const cid = req.query.cid;
+
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
+
+        const now = new Date();
+        const yearNow = now.getUTCFullYear();
+        let month = now.getUTCMonth();
+        const year = parseInt(req.query.year || yearNow);
+        if (year < yearNow) month = 11;
+
+        const data = {}
+        for(let i = 0; i <= month; i++) {
+            data[i] = await getMoneyVelocity(api, cid, year, i)
+        }
+        res.send(
+            JSON.stringify({
+                data,
+                communityName,
+                year,
+            })
+        );
+
     } catch (e) {
         next(e);
     }

@@ -11,10 +11,28 @@ class Database {
         this.dataCache = this.dbClient.db("data_cache");
         this.accountData = this.dataCache.collection("account_data");
         this.rewardsData = this.dataCache.collection("rewards_data");
+        this.generalCache = this.dataCache.collection("general_cache");
 
         this.main = this.dbClient.db("main");
         this.users = this.main.collection("users");
         this.communities = this.main.collection("communities");
+    }
+
+    async insertIntoGeneralCache(cacheIdentifier, query, data) {
+        await this.generalCache.replaceOne(
+            { ...query, cacheIdentifier },
+            { ...query, cacheIdentifier, data },
+            {
+                upsert: true,
+            }
+        );
+    }
+    async getFromGeneralCache(cacheIdentifier, query) {
+        return (
+            await (
+                await this.generalCache.find({ ...query, cacheIdentifier })
+            ).toArray()
+        ).map((e) => e.data);
     }
 
     async insertIntoAccountDataCache(account, year, month, cid, data) {
@@ -26,10 +44,17 @@ class Database {
             }
         );
     }
-
     async getFromAccountDataCache(account, year, cid) {
         return (
-            await (await this.accountData.find({ account, year, cid })).toArray()
+            await (
+                await this.accountData.find({ account, year, cid })
+            ).toArray()
+        ).map((e) => e.data);
+    }
+
+    async getFromAccountDataCacheByMonth(month, year, cid) {
+        return (
+            await (await this.accountData.find({ month, year, cid })).toArray()
         ).map((e) => e.data);
     }
 
@@ -51,7 +76,7 @@ class Database {
         const user = await this.users.findOne({ address });
         if (!user) return null;
         if (await bcrypt.compare(password, user.passwordHash)) return user;
-        return null
+        return null;
     }
 
     async upsertUser(address, password, name, isAdmin = false) {

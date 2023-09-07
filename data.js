@@ -7,14 +7,30 @@ import {
 } from "./graphQl.js";
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
-export async function gatherAccountingOverview(api, account, cid, year, month, includeCurrentMonth=false) {
+export async function gatherAccountingOverview(
+    api,
+    account,
+    cid,
+    year,
+    month,
+    includeCurrentMonth = false
+) {
+    const now = new Date();
+    const yearNow = now.getUTCFullYear();
+
+    // we loop over all months including the last and then skip the last month computation at the end.
+    if (year < yearNow) {
+        includeCurrentMonth = false;
+        month += 1;
+    }
+
     const cachedData = await db.getFromAccountDataCache(account, year, cid);
     const data = [];
     // encointer started in june 2022
-    const startMonth = year === 2022 ? 5 : 0
+    const startMonth = year === 2022 ? 5 : 0;
     for (let i = startMonth; i < month; i++) {
         const cachedMonthItem = cachedData?.filter((e) => e.month === i)?.[0];
-        
+
         if (cachedMonthItem) {
             data.push(cachedMonthItem);
         } else {
@@ -35,7 +51,16 @@ export async function gatherAccountingOverview(api, account, cid, year, month, i
             );
         }
     }
-    if(includeCurrentMonth) data.push(await getAccountingData(api, account, cid, year, month));
+    if (includeCurrentMonth) {
+        const currentMonthData = await getAccountingData(
+            api,
+            account,
+            cid,
+            year,
+            month
+        );
+        data.push(currentMonthData);
+    }
     return data;
 }
 
@@ -65,6 +90,13 @@ function getLastTimeStampOfMonth(year, monthIndex) {
 
 function getFirstTimeStampOfMonth(year, monthIndex) {
     return new Date(Date.UTC(year, monthIndex)).getTime();
+}
+
+export async function getFirstBlockOfMonth(year, monthIndex) {
+    const firstTimestamp = getFirstTimeStampOfMonth(year, monthIndex);
+    const blockNumber = await getBlockNumberByTimestamp(firstTimestamp);
+
+    return blockNumber;
 }
 
 export async function getLastBlockOfMonth(api, year, monthIndex) {
@@ -202,7 +234,6 @@ export async function getSelectedRangeData(api, account, cid, start, end) {
 }
 
 async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
-
     // sorting is important for chaching
     // such that we can stop processing the events as soon
     // as the data from the given cycle is in the cache
@@ -224,12 +255,12 @@ async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
         ]);
         cindex = cindex.toNumber();
 
-
         issueEvent.cindex =
             phase.toHuman() === "Registering" ? cindex - 1 : cindex;
         issueEvent.nominalIncome = parseEncointerBalance(nominalIncome.bits);
         // we patch this because on chain the nominal income was not set during the first rescue ceremonie
-        if (parseInt(issueEvent.blockHeight) === 808023) issueEvent.nominalIncome = 22;
+        if (parseInt(issueEvent.blockHeight) === 808023)
+            issueEvent.nominalIncome = 22;
 
         if (cachedData && cindex.toString() in cachedData) break;
         rewardsIssuedsWithCindexAndNominalIncome.push(issueEvent);
@@ -358,4 +389,57 @@ function generateDailyDigestFromTxnLog(txnLog) {
         };
     }
     return result;
+}
+
+async function getTotalIssuance(api, cid, blockNumber) {
+    const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
+    cid = mapRescueCids(cid, blockNumber);
+    const cidDecoded = parseCid(cid);
+    return parseEncointerBalance(
+        (
+            await api.query.encointerBalances.totalIssuance.at(
+                blockHash,
+                cidDecoded
+            )
+        ).principal.bits
+    );
+}
+export async function getMoneyVelocity(api, cid, year, month) {
+    const cachedData = await db.getFromGeneralCache("moneyVelocity", {
+        cid,
+        year,
+        month,
+    });
+    if (cachedData.length === 1) return cachedData[0].moneyVelocity;
+
+    const cachedAccountingData = await db.getFromAccountDataCacheByMonth(
+        month,
+        year,
+        cid
+    );
+
+    if (cachedAccountingData.length === 0) return 0;
+    const firstBlockOfMonth = await getFirstBlockOfMonth(year, month);
+    const lastBlockOfMonth = await getLastBlockOfMonth(api, year, month);
+    const totalIssuanceStart = await getTotalIssuance(
+        api,
+        cid,
+        firstBlockOfMonth
+    );
+    const totalIssuanceEnd = await getTotalIssuance(api, cid, lastBlockOfMonth);
+
+    const averagetotalIssuance = (totalIssuanceStart + totalIssuanceEnd) * 0.5;
+
+    const totalTurnover = cachedAccountingData.reduce(
+        (acc, cur) => acc + cur.sumIncoming,
+        0
+    );
+
+    const moneyVelocity = (totalTurnover * 12) / averagetotalIssuance;
+    db.insertIntoGeneralCache(
+        "moneyVelocity",
+        { cid, year, month },
+        { moneyVelocity }
+    );
+    return moneyVelocity;
 }
