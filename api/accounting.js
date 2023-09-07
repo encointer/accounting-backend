@@ -7,6 +7,7 @@ import {
     generateTxnLog,
     getSelectedRangeData,
     getMoneyVelocity,
+    getVolume,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -448,4 +449,59 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/accounting/volume-report:
+ *   get:
+ *     description: Retrieve total volume for each month of the year
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         required: false
+ *         description: Year
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ */
+accounting.get("/volume-report", async function (req, res, next) {
+    try {
+        const cid = req.query.cid;
+
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
+
+        const now = new Date();
+        const yearNow = now.getUTCFullYear();
+        let month = now.getUTCMonth();
+        const year = parseInt(req.query.year || yearNow);
+        if (year < yearNow) month = 11;
+
+        const data = {}
+        for(let i = 0; i <= month; i++) {
+            data[i] = await getVolume(cid, year, i);
+        }
+        res.send(
+            JSON.stringify({
+                data,
+                communityName,
+                year,
+            })
+        );
+
+    } catch (e) {
+        next(e);
+    }
+});
 export default accounting;

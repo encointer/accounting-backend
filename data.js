@@ -4,8 +4,16 @@ import {
     gatherTransactionData,
     getRewardsIssueds,
     getBlockNumberByTimestamp,
+    getTransactionVolume,
 } from "./graphQl.js";
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
+
+function canBeCached(month, year) {
+    const now = new Date();
+    const yearNow = now.getUTCFullYear();
+    let monthNow = now.getUTCMonth();
+    return year < yearNow || month < monthNow;
+}
 
 export async function gatherAccountingOverview(
     api,
@@ -436,10 +444,35 @@ export async function getMoneyVelocity(api, cid, year, month) {
     );
 
     const moneyVelocity = (totalTurnover * 12) / averagetotalIssuance;
-    db.insertIntoGeneralCache(
-        "moneyVelocity",
-        { cid, year, month },
-        { moneyVelocity }
-    );
+    if (canBeCached(year, month)) {
+        db.insertIntoGeneralCache(
+            "moneyVelocity",
+            { cid, year, month },
+            { moneyVelocity }
+        );
+    }
     return moneyVelocity;
+}
+
+export async function getVolume(cid, year, month) {
+    const cachedData = await db.getFromGeneralCache("transactionVolume", {
+        cid,
+        year,
+        month,
+    });
+    if (cachedData.length === 1) return cachedData[0].transactionVolume;
+
+    const start = getFirstTimeStampOfMonth(year, month);
+    const end = getLastTimeStampOfMonth(year, month);
+    const transactionVolume = await getTransactionVolume(cid, start, end);
+
+    if (canBeCached(year, month)) {
+        db.insertIntoGeneralCache(
+            "transactionVolume",
+            { cid, year, month },
+            { transactionVolume }
+        );
+    }
+
+    return transactionVolume;
 }

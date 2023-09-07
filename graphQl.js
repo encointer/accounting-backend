@@ -1,3 +1,4 @@
+import { parseEncointerBalance } from "@encointer/types";
 import { INDEXER_ENDPOINT } from "./consts.js";
 import fetch from "node-fetch";
 
@@ -31,26 +32,49 @@ async function getClosestBlock(timestamp) {
     return graphQlQuery(query, { timestamp });
 }
 
-async function getTransfers(start, end, address, cid, direction) {
-    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
-        transferreds(filter: {arg${direction}: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
-          nodes {
-          id
-          blockHeight
-          timestamp
-          arg0
-          arg1
-          arg2
-          arg3
-          }
-          pageInfo {
-            endCursor
-            hasNextPage
-          }
+async function getAllTransfers(start, end, cid) {
+  const query = `query Query($start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
+      transferreds(filter: {timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
+        nodes {
+        id
+        blockHeight
+        timestamp
+        arg0
+        arg1
+        arg2
+        arg3
         }
-      }`;
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+      }
+    }`;
 
-    return getAllPages(query, { address, start, end, cid });
+  return getAllPages(query, { start, end, cid });
+}
+
+
+async function getTransfers(start, end, address, cid, direction) {
+  const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
+      transferreds(filter: {arg${direction}: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
+        nodes {
+        id
+        blockHeight
+        timestamp
+        arg0
+        arg1
+        arg2
+        arg3
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+      }
+    }`;
+
+  return getAllPages(query, { address, start, end, cid });
 }
 
 async function getIssues(start, end, address, cid) {
@@ -137,4 +161,8 @@ export async function gatherTransactionData(start, end, address, cid) {
 export async function getBlockNumberByTimestamp(timestamp) {
     let block = (await getClosestBlock(timestamp)).blocks.nodes[0];
     return block.blockHeight;
+}
+
+export async function getTransactionVolume(cid, start, end) {
+  return (await getAllTransfers(start, end, cid)).reduce((acc, cur) => acc + cur.arg3, 0);
 }
