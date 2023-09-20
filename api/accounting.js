@@ -8,6 +8,7 @@ import {
     getSelectedRangeData,
     getMoneyVelocity,
     getVolume,
+    getCumulativeRewardsData,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -432,9 +433,9 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
         const year = parseInt(req.query.year || yearNow);
         if (year < yearNow) month = 11;
 
-        const data = {}
-        for(let i = 0; i <= month; i++) {
-            data[i] = await getMoneyVelocity(api, cid, year, i)
+        const data = {};
+        for (let i = 0; i <= month; i++) {
+            data[i] = await getMoneyVelocity(api, cid, year, i);
         }
         res.send(
             JSON.stringify({
@@ -443,7 +444,6 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
                 year,
             })
         );
-
     } catch (e) {
         next(e);
     }
@@ -488,8 +488,8 @@ accounting.get("/volume-report", async function (req, res, next) {
         const year = parseInt(req.query.year || yearNow);
         if (year < yearNow) month = 11;
 
-        const data = {}
-        for(let i = 0; i <= month; i++) {
+        const data = {};
+        for (let i = 0; i <= month; i++) {
             data[i] = await getVolume(cid, year, i);
         }
         res.send(
@@ -499,7 +499,146 @@ accounting.get("/volume-report", async function (req, res, next) {
                 year,
             })
         );
+    } catch (e) {
+        next(e);
+    }
+});
 
+/**
+ * @swagger
+ * /v1/accounting/reputables-by-cindex:
+ *   get:
+ *     description: Retrieve the number of reputables by cindex
+ *     parameters:
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ */
+accounting.get("/reputables-by-cindex", async function (req, res, next) {
+    try {
+        const api = req.app.get("api");
+        const cid = req.query.cid;
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
+
+        let cumulativeRewardsData = await getCumulativeRewardsData(api, cid)
+        res.send(
+            JSON.stringify({
+                data: cumulativeRewardsData,
+                communityName,
+            })
+        );
+    } catch (e) {
+        next(e);
+    }
+});
+
+/**
+ * @swagger
+ * /v1/accounting/cumulative-frequency-of-attendance:
+ *   get:
+ *     description: Get the cumulative frequency of attendance for reputables
+ *     parameters:
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ */
+accounting.get(
+    "/cumulative-frequency-of-attendance",
+    async function (req, res, next) {
+        try {
+            const cid = req.query.cid;
+
+            const community = await db.getCommunity(cid);
+            const communityName = community.name;
+
+            const now = new Date();
+            const yearNow = now.getUTCFullYear();
+            let month = now.getUTCMonth();
+            const year = parseInt(req.query.year || yearNow);
+            if (year < yearNow) month = 11;
+
+            const data = {};
+            for (let i = 0; i <= month; i++) {
+                data[i] = await getVolume(cid, year, i);
+            }
+            res.send(
+                JSON.stringify({
+                    data,
+                    communityName,
+                    year,
+                })
+            );
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+/**
+ * @swagger
+ * /v1/accounting/transaction-activity:
+ *   get:
+ *     description: Get the transaction activity report
+ *     parameters:
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ */
+accounting.get("/transaction-activity", async function (req, res, next) {
+    try {
+        const cid = req.query.cid;
+
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
+
+        const now = new Date();
+        const yearNow = now.getUTCFullYear();
+        let month = now.getUTCMonth();
+        const year = parseInt(req.query.year || yearNow);
+        if (year < yearNow) month = 11;
+
+        const data = {};
+        for (let i = 0; i <= month; i++) {
+            data[i] = await getVolume(cid, year, i);
+        }
+        res.send(
+            JSON.stringify({
+                data,
+                communityName,
+                year,
+            })
+        );
     } catch (e) {
         next(e);
     }

@@ -17,6 +17,7 @@ async function graphQlQuery(query, variables) {
             variables,
         }),
     });
+    if(!res.ok) console.log(await res.text())
     return (await res.json()).data;
 }
 
@@ -98,6 +99,27 @@ async function getIssues(start, end, address, cid) {
     return getAllPages(query, { address, start, end, cid });
 }
 
+export async function getAllIssues(cid) {
+  const query = `query Query($cid: String!, $after: Cursor!){
+      issueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
+        nodes {
+        id
+        blockHeight
+        timestamp
+        arg0
+        arg1
+        arg2
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+      }
+    }`;
+
+  return getAllPages(query, { cid });
+}
+
 export async function getRewardsIssueds(cid) {
     const query = `query Query($cid: String!, $after: Cursor!){
         rewardsIssueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_DESC, after: $after) {
@@ -117,6 +139,23 @@ export async function getRewardsIssueds(cid) {
       }`;
 
     return getAllPages(query, { cid });
+}
+
+async function getBlocksByBlockHeights(heights) {
+  const query = `query Query{
+    blocks(filter: {blockHeight: {in:${JSON.stringify(heights)}} }) {
+          nodes {
+          id
+          blockHeight
+          timestamp
+          cindex
+          phase
+          }
+        }
+      }`
+
+    
+  return (await graphQlQuery(query)).blocks.nodes;
 }
 
 export async function getAllPages(query, variables) {
@@ -165,4 +204,12 @@ export async function getBlockNumberByTimestamp(timestamp) {
 
 export async function getTransactionVolume(cid, start, end) {
   return (await getAllTransfers(start, end, cid)).reduce((acc, cur) => acc + cur.arg3, 0);
+}
+
+export async function getAllBlocksByBlockHeights(heights) {
+  const result = []
+  for(let i = 0; i < heights.length; i += 50) {
+    result.push(...(await getBlocksByBlockHeights(heights.slice(i, i + 50))))
+  }
+  return result
 }

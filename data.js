@@ -5,6 +5,8 @@ import {
     getRewardsIssueds,
     getBlockNumberByTimestamp,
     getTransactionVolume,
+    getAllIssues,
+    getAllBlocksByBlockHeights,
 } from "./graphQl.js";
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
@@ -475,4 +477,44 @@ export async function getVolume(cid, year, month) {
     }
 
     return transactionVolume;
+}
+
+export async function getCumulativeRewardsData(api, cid) {
+    const reputationLifetime =
+        await api.query.encointerCeremonies.reputationLifetime();
+
+    const issueds = await getAllIssues(cid);
+    const blocks = await getAllBlocksByBlockHeights([
+        ...new Set(issueds.map((c) => c.blockHeight)),
+    ]);
+
+    issueds.forEach((i) => {
+        let block = blocks.find((b) => b.blockHeight === i.blockHeight);
+        i.cindex = block.cindex;
+        if (block.phase === "REGISTERING") i.cindex--;
+    });
+
+    const reputablesByCindex = issueds.reduce((acc, cur) => {
+        acc[cur.cindex] = acc[cur.cindex] || [];
+        acc[cur.cindex].push(cur.arg1);
+        return acc;
+    }, {});
+
+
+    const cumulativeReputables = {};
+
+    Object.keys(reputablesByCindex).forEach((e) => {
+        let cindex = parseInt(e);
+        let minCindex = Math.max(1, cindex - reputationLifetime);
+        let reputables = new Set();
+        for (let i = minCindex; i <= cindex; i++) {
+            (reputablesByCindex[`${i}`] || []).forEach((item) =>
+                reputables.add(item)
+            );
+        }
+
+        cumulativeReputables[e] = reputables.size;
+    });
+
+    return cumulativeReputables;
 }
