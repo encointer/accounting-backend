@@ -619,7 +619,6 @@ export async function getTransactionActivityLog(
         year
     });
 
-    console.log(cachedData)
     const data = [];
     // encointer started in june 2022
     const startMonth = year === 2022 ? 5 : 0;
