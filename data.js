@@ -7,6 +7,7 @@ import {
     getTransactionVolume,
     getAllIssues,
     getAllBlocksByBlockHeights,
+    getReputableRegistrations,
 } from "./graphQl.js";
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
@@ -479,10 +480,7 @@ export async function getVolume(cid, year, month) {
     return transactionVolume;
 }
 
-export async function getCumulativeRewardsData(api, cid) {
-    const reputationLifetime =
-        await api.query.encointerCeremonies.reputationLifetime();
-
+async function getIssuedsWithCindex(cid) {
     const issueds = await getAllIssues(cid);
     const blocks = await getAllBlocksByBlockHeights([
         ...new Set(issueds.map((c) => c.blockHeight)),
@@ -493,13 +491,20 @@ export async function getCumulativeRewardsData(api, cid) {
         i.cindex = block.cindex;
         if (block.phase === "REGISTERING") i.cindex--;
     });
+    return issueds;
+}
+
+export async function getCumulativeRewardsData(api, cid) {
+    const reputationLifetime =
+        await api.query.encointerCeremonies.reputationLifetime();
+
+    const issueds = await getIssuedsWithCindex(cid);
 
     const reputablesByCindex = issueds.reduce((acc, cur) => {
         acc[cur.cindex] = acc[cur.cindex] || [];
         acc[cur.cindex].push(cur.arg1);
         return acc;
     }, {});
-
 
     const cumulativeReputables = {};
 
@@ -517,4 +522,48 @@ export async function getCumulativeRewardsData(api, cid) {
     });
 
     return cumulativeReputables;
+}
+
+export async function getFrequencyOfAttendance(api, cid) {
+    const reputationLifetime =
+        await api.query.encointerCeremonies.reputationLifetime();
+
+    const currentCindex = (
+        await api.query.encointerScheduler.currentCeremonyIndex()
+    ).toNumber();
+    const issueds = await getIssuedsWithCindex(cid);
+    const repuableRegistrations = await getReputableRegistrations(cid);
+
+    const data = {};
+
+    issueds.forEach((i) => {
+        const address = i.arg1;
+        data[address] = data[address] || {
+            registrations: 0,
+            reputations: 0,
+            potentialCindexes: new Set(),
+        };
+        data[address].reputations += 1;
+        for (let j = 1; j <= reputationLifetime; j++)
+            data[address].potentialCindexes.add(
+                Math.min(i.cindex + j, currentCindex)
+            );
+    });
+
+    repuableRegistrations.forEach((r) => {
+        data[r.arg2] = data[r.arg2] || { registrations: 0, reputations: 0 };
+        data[r.arg2].registrations += 1;
+    });
+
+    const result = {};
+    const numReputables = Object.keys(data).length;
+    for (let i = 1; i <= 14; i++) {
+        const denominator = 2 * i + 1;
+        const cutoff = 2 / denominator;
+        result[`${2}/${denominator}`] =
+            Object.values(data).filter(
+                (i) => i.registrations / i.potentialCindexes.size >= cutoff
+            ).length / numReputables;
+    }
+    return result;
 }

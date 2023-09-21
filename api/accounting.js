@@ -9,6 +9,7 @@ import {
     getMoneyVelocity,
     getVolume,
     getCumulativeRewardsData,
+    getFrequencyOfAttendance,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -545,9 +546,9 @@ accounting.get("/reputables-by-cindex", async function (req, res, next) {
 
 /**
  * @swagger
- * /v1/accounting/cumulative-frequency-of-attendance:
+ * /v1/accounting/frequency-of-attendance:
  *   get:
- *     description: Get the cumulative frequency of attendance for reputables
+ *     description: Get the frequency of attendance for reputables
  *     parameters:
  *       - in: query
  *         name: cid
@@ -564,29 +565,20 @@ accounting.get("/reputables-by-cindex", async function (req, res, next) {
  *              description: Permission denied
  */
 accounting.get(
-    "/cumulative-frequency-of-attendance",
+    "/frequency-of-attendance",
     async function (req, res, next) {
         try {
+            const api = req.app.get("api");
             const cid = req.query.cid;
 
             const community = await db.getCommunity(cid);
             const communityName = community.name;
 
-            const now = new Date();
-            const yearNow = now.getUTCFullYear();
-            let month = now.getUTCMonth();
-            const year = parseInt(req.query.year || yearNow);
-            if (year < yearNow) month = 11;
-
-            const data = {};
-            for (let i = 0; i <= month; i++) {
-                data[i] = await getVolume(cid, year, i);
-            }
+            const data = await getFrequencyOfAttendance(api, cid)
             res.send(
                 JSON.stringify({
                     data,
                     communityName,
-                    year,
                 })
             );
         } catch (e) {

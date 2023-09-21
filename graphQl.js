@@ -158,6 +158,28 @@ async function getBlocksByBlockHeights(heights) {
   return (await graphQlQuery(query)).blocks.nodes;
 }
 
+export async function getReputableRegistrations(cid) {
+  const query =  `query Query($cid: String!, $after: Cursor!){
+    participantRegistereds(filter: {arg0: {equalTo: $cid}, arg1: {in: ["Reputable","Bootstrapper"]} }, after: $after) {
+        nodes {
+        id
+        blockHeight
+        timestamp
+        arg0
+        arg1
+        arg2
+        }
+        pageInfo {
+          endCursor
+          hasNextPage
+        }
+      }
+  }`;
+
+    
+      return getAllPages(query, { cid });
+}
+
 export async function getAllPages(query, variables) {
     let response, data;
     const result = [];
