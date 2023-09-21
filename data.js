@@ -579,24 +579,27 @@ async function getTransactionActiviyData(cid, year, month) {
 
     const transfers = await getAllTransfers(start, end, cid);
 
-    const totalVolume = transfers.reduce((acc, cur) => acc + cur.arg3, 0);
-    const voucherVolume = transfers
-        .filter((t) => voucherAddresses.includes(t.arg2))
-        .reduce((acc, cur) => acc + cur.arg3, 0);
-    const govVolume = transfers
-        .filter((t) => govAddresses.includes(t.arg2))
-        .reduce((acc, cur) => acc + cur.arg3, 0);
-    const acceptancePointVolume = transfers
-        .filter((t) => acceptancePointAddresses.includes(t.arg2))
-        .reduce((acc, cur) => acc + cur.arg3, 0);
+    const totalTransactionCount = transfers.length;
+    const voucherTransactionCount = transfers.filter((t) =>
+        voucherAddresses.includes(t.arg2)
+    ).length;
+    const govTransactionCount = transfers.filter((t) =>
+        govAddresses.includes(t.arg2)
+    ).length;
+    const acceptancePointTransactionCount = transfers.filter((t) =>
+        acceptancePointAddresses.includes(t.arg2)
+    ).length;
 
     return {
         month,
-        voucherVolume,
-        govVolume,
-        acceptancePointVolume,
-        personalVolume:
-            totalVolume - voucherVolume - govVolume - acceptancePointVolume,
+        voucherTransactionCount,
+        govTransactionCount,
+        acceptancePointTransactionCount,
+        personalTransactionCount:
+            totalTransactionCount -
+            voucherTransactionCount -
+            govTransactionCount -
+            acceptancePointTransactionCount,
     };
 }
 export async function getTransactionActivityLog(
@@ -616,7 +619,7 @@ export async function getTransactionActivityLog(
 
     const cachedData = await db.getFromGeneralCache("transactionActivity", {
         cid,
-        year
+        year,
     });
 
     const data = [];
