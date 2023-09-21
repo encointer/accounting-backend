@@ -33,7 +33,7 @@ async function getClosestBlock(timestamp) {
     return graphQlQuery(query, { timestamp });
 }
 
-async function getAllTransfers(start, end, cid) {
+export async function getAllTransfers(start, end, cid) {
   const query = `query Query($start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
       transferreds(filter: {timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
         nodes {

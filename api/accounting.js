@@ -10,6 +10,7 @@ import {
     getVolume,
     getCumulativeRewardsData,
     getFrequencyOfAttendance,
+    getTransactionActivityLog,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -612,7 +613,6 @@ accounting.get("/transaction-activity", async function (req, res, next) {
         const cid = req.query.cid;
 
         const community = await db.getCommunity(cid);
-        const communityName = community.name;
 
         const now = new Date();
         const yearNow = now.getUTCFullYear();
@@ -620,14 +620,15 @@ accounting.get("/transaction-activity", async function (req, res, next) {
         const year = parseInt(req.query.year || yearNow);
         if (year < yearNow) month = 11;
 
-        const data = {};
-        for (let i = 0; i <= month; i++) {
-            data[i] = await getVolume(cid, year, i);
-        }
+        const data = await getTransactionActivityLog(
+            cid,
+            year,
+            month
+        );
         res.send(
             JSON.stringify({
                 data,
-                communityName,
+                communityName: community.name,
                 year,
             })
         );

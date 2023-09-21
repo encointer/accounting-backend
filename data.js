@@ -8,6 +8,7 @@ import {
     getAllIssues,
     getAllBlocksByBlockHeights,
     getReputableRegistrations,
+    getAllTransfers,
 } from "./graphQl.js";
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
@@ -566,4 +567,89 @@ export async function getFrequencyOfAttendance(api, cid) {
             ).length / numReputables;
     }
     return result;
+}
+
+async function getTransactionActiviyData(cid, year, month) {
+    const start = getFirstTimeStampOfMonth(year, month);
+    const end = getLastTimeStampOfMonth(year, month);
+
+    const voucherAddresses = await db.getVoucherAddresses(cid);
+    const govAddresses = await db.getGovAddresses(cid);
+    const acceptancePointAddresses = await db.getAcceptancePointAddresses(cid);
+
+    const transfers = await getAllTransfers(start, end, cid);
+
+    const totalVolume = transfers.reduce((acc, cur) => acc + cur.arg3, 0);
+    const voucherVolume = transfers
+        .filter((t) => voucherAddresses.includes(t.arg2))
+        .reduce((acc, cur) => acc + cur.arg3, 0);
+    const govVolume = transfers
+        .filter((t) => govAddresses.includes(t.arg2))
+        .reduce((acc, cur) => acc + cur.arg3, 0);
+    const acceptancePointVolume = transfers
+        .filter((t) => acceptancePointAddresses.includes(t.arg2))
+        .reduce((acc, cur) => acc + cur.arg3, 0);
+
+    return {
+        month,
+        voucherVolume,
+        govVolume,
+        acceptancePointVolume,
+        personalVolume:
+            totalVolume - voucherVolume - govVolume - acceptancePointVolume,
+    };
+}
+export async function getTransactionActivityLog(
+    cid,
+    year,
+    month,
+    includeCurrentMonth = false
+) {
+    const now = new Date();
+    const yearNow = now.getUTCFullYear();
+
+    // we loop over all months including the last and then skip the last month computation at the end.
+    if (year < yearNow) {
+        includeCurrentMonth = false;
+        month += 1;
+    }
+
+    const cachedData = await db.getFromGeneralCache("transactionActivity", {
+        cid,
+        year
+    });
+
+    console.log(cachedData)
+    const data = [];
+    // encointer started in june 2022
+    const startMonth = year === 2022 ? 5 : 0;
+    for (let i = startMonth; i < month; i++) {
+        const cachedMonthItem = cachedData?.filter((e) => e.month === i)?.[0];
+
+        if (cachedMonthItem) {
+            data.push(cachedMonthItem);
+        } else {
+            const transactionActivityData = await getTransactionActiviyData(
+                cid,
+                year,
+                i
+            );
+            data.push(transactionActivityData);
+
+            db.insertIntoGeneralCache(
+                "transactionActivity",
+                { cid, year, month: i },
+                transactionActivityData
+            );
+        }
+    }
+    if (includeCurrentMonth) {
+        const currentMonthData = await getTransactionActiviyData(
+            cid,
+            year,
+            month
+        );
+        data.push(currentMonthData);
+    }
+    return data;
 }

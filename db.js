@@ -16,6 +16,8 @@ class Database {
         this.main = this.dbClient.db("main");
         this.users = this.main.collection("users");
         this.communities = this.main.collection("communities");
+        this.vouchers = this.main.collection("vouchers");
+        this.knows_addresses = this.main.collection("known_addresses");
     }
 
     async insertIntoGeneralCache(cacheIdentifier, query, data) {
@@ -162,6 +164,30 @@ class Database {
         return this.communities
             .find({}, { projection: { cid: 1, name: 1, _id: 0 } })
             .toArray();
+    }
+
+    async getVoucherAddresses(cid) {
+        return (
+            await this.vouchers
+                .find({ cid }, { projection: { address: 1 } })
+                .toArray()
+        ).map((e) => e.address);
+    }
+
+    async getGovAddresses(cid) {
+        return (
+            await this.knows_addresses
+                .find({ cid, type: "gov" }, { projection: { address: 1 } })
+                .toArray()
+        ).map((e) => e.address);
+    }
+    async getAcceptancePointAddresses(cid) {
+        return (
+            await this.communities.findOne(
+                { cid },
+                { projection: { accounts: 1 } }
+            )
+        ).accounts;
     }
 }
 
