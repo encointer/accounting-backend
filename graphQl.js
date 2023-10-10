@@ -17,7 +17,7 @@ async function graphQlQuery(query, variables) {
             variables,
         }),
     });
-    if(!res.ok) console.log(await res.text())
+    if (!res.ok) console.log(await res.text());
     return (await res.json()).data;
 }
 
@@ -34,7 +34,7 @@ async function getClosestBlock(timestamp) {
 }
 
 export async function getAllTransfers(start, end, cid) {
-  const query = `query Query($start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
+    const query = `query Query($start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
       transferreds(filter: {timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
         nodes {
         id
@@ -52,12 +52,11 @@ export async function getAllTransfers(start, end, cid) {
       }
     }`;
 
-  return getAllPages(query, { start, end, cid });
+    return getAllPages(query, { start, end, cid });
 }
 
-
 async function getTransfers(start, end, address, cid, direction) {
-  const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
+    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
       transferreds(filter: {arg${direction}: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
         nodes {
         id
@@ -75,7 +74,7 @@ async function getTransfers(start, end, address, cid, direction) {
       }
     }`;
 
-  return getAllPages(query, { address, start, end, cid });
+    return getAllPages(query, { address, start, end, cid });
 }
 
 async function getIssues(start, end, address, cid) {
@@ -100,7 +99,7 @@ async function getIssues(start, end, address, cid) {
 }
 
 export async function getAllIssues(cid) {
-  const query = `query Query($cid: String!, $after: Cursor!){
+    const query = `query Query($cid: String!, $after: Cursor!){
       issueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
         nodes {
         id
@@ -117,7 +116,7 @@ export async function getAllIssues(cid) {
       }
     }`;
 
-  return getAllPages(query, { cid });
+    return getAllPages(query, { cid });
 }
 
 export async function getRewardsIssueds(cid) {
@@ -142,7 +141,7 @@ export async function getRewardsIssueds(cid) {
 }
 
 async function getBlocksByBlockHeights(heights) {
-  const query = `query Query{
+    const query = `query Query{
     blocks(filter: {blockHeight: {in:${JSON.stringify(heights)}} }) {
           nodes {
           id
@@ -152,14 +151,13 @@ async function getBlocksByBlockHeights(heights) {
           phase
           }
         }
-      }`
+      }`;
 
-    
-  return (await graphQlQuery(query)).blocks.nodes;
+    return (await graphQlQuery(query)).blocks.nodes;
 }
 
 export async function getReputableRegistrations(cid) {
-  const query =  `query Query($cid: String!, $after: Cursor!){
+    const query = `query Query($cid: String!, $after: Cursor!){
     participantRegistereds(filter: {arg0: {equalTo: $cid}, arg1: {in: ["Reputable","Bootstrapper"]} }, after: $after) {
         nodes {
         id
@@ -176,8 +174,7 @@ export async function getReputableRegistrations(cid) {
       }
   }`;
 
-    
-      return getAllPages(query, { cid });
+    return getAllPages(query, { cid });
 }
 
 export async function getAllPages(query, variables) {
@@ -225,13 +222,27 @@ export async function getBlockNumberByTimestamp(timestamp) {
 }
 
 export async function getTransactionVolume(cid, start, end) {
-  return (await getAllTransfers(start, end, cid)).reduce((acc, cur) => acc + cur.arg3, 0);
+    return (await getAllTransfers(start, end, cid)).reduce(
+        (acc, cur) => acc + cur.arg3,
+        0
+    );
 }
 
+const blockCache = {};
 export async function getAllBlocksByBlockHeights(heights) {
-  const result = []
-  for(let i = 0; i < heights.length; i += 50) {
-    result.push(...(await getBlocksByBlockHeights(heights.slice(i, i + 50))))
-  }
-  return result
+    const result = [];
+    const remainingHeights = [];
+    heights.forEach((h) => {
+        if (h in blockCache) {
+            result.push(blockCache[h]);
+        } else {
+            remainingHeights.push(h);
+        }
+    });
+    for (let i = 0; i < remainingHeights.length; i += 10) {
+        let blocks = await getBlocksByBlockHeights(remainingHeights.slice(i, i + 10));
+        blocks.forEach((b) => (blockCache[b.blockHeight] = b));
+        result.push(...blocks);
+    }
+    return result;
 }
