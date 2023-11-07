@@ -16,7 +16,7 @@ function canBeCached(month, year) {
     const now = new Date();
     const yearNow = now.getUTCFullYear();
     let monthNow = now.getUTCMonth();
-    return year < yearNow || month < monthNow;
+    return year < yearNow && month < monthNow;
 }
 
 export async function gatherAccountingOverview(
