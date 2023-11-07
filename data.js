@@ -448,7 +448,7 @@ export async function getMoneyVelocity(api, cid, year, month) {
     );
 
     const moneyVelocity = (totalTurnover * 12) / averagetotalIssuance;
-    if (canBeCached(year, month)) {
+    if (canBeCached(month, year)) {
         db.insertIntoGeneralCache(
             "moneyVelocity",
             { cid, year, month },
@@ -470,7 +470,7 @@ export async function getVolume(cid, year, month) {
     const end = getLastTimeStampOfMonth(year, month);
     const transactionVolume = await getTransactionVolume(cid, start, end);
 
-    if (canBeCached(year, month)) {
+    if (canBeCached(month, year)) {
         db.insertIntoGeneralCache(
             "transactionVolume",
             { cid, year, month },
