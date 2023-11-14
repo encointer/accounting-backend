@@ -41,7 +41,7 @@ export function getRandomPassword() {
 
 
 export function mapRescueCids(cid, blockNumber) {
-    if(!cid === 'u0qj944rhWE') return cid
+    if(cid !== 'u0qj944rhWE') return cid
     let newCid = 'u0qj944rhWE'
     if(blockNumber < 1111286) newCid = 'u0qj9QqA2Q'
     if(blockNumber < 806355) newCid = 'u0qj92QX9PQ'
