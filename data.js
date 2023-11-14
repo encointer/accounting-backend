@@ -552,7 +552,7 @@ export async function getFrequencyOfAttendance(api, cid) {
     });
 
     repuableRegistrations.forEach((r) => {
-        data[r.arg2] = data[r.arg2] || { registrations: 0, reputations: 0 };
+        data[r.arg2] = data[r.arg2] || { registrations: 0, reputations: 0, potentialCindexes: new Set() };
         data[r.arg2].registrations += 1;
     });
 
