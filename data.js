@@ -552,7 +552,11 @@ export async function getFrequencyOfAttendance(api, cid) {
     });
 
     repuableRegistrations.forEach((r) => {
-        data[r.arg2] = data[r.arg2] || { registrations: 0, reputations: 0, potentialCindexes: new Set() };
+        data[r.arg2] = data[r.arg2] || {
+            registrations: 0,
+            reputations: 0,
+            potentialCindexes: new Set(),
+        };
         data[r.arg2].registrations += 1;
     });
 
@@ -654,4 +658,54 @@ export async function getTransactionActivityLog(
         data.push(currentMonthData);
     }
     return data;
+}
+
+export async function getSankeyReport(api, cid, account, start, end) {
+    const [
+        incoming,
+        outgoing,
+        issues,
+        sumIncoming,
+        sumOutgoing,
+        sumIssues,
+        numDistinctClients,
+    ] = await gatherTransactionData(start, end, account, cid);
+
+    const startTimeStamp = await getBlockNumberByTimestamp(start);
+    const endTimestamp = await getBlockNumberByTimestamp(end);
+
+    const startBalance = await getDemurrageAdjustedBalance(
+        api,
+        account,
+        cid,
+        startTimeStamp
+    );
+    const endBalance = await getDemurrageAdjustedBalance(
+        api,
+        account,
+        cid,
+        endTimestamp
+    );
+
+    const acceptancePointAddresses = await db.getAcceptancePointAddresses(cid);
+
+    const sum = arr => arr.reduce((partialSum, a) => partialSum + a, 0);
+    const ciiToBiz = sumIssues;
+    const b2bToBiz = sum(incoming.filter(e => acceptancePointAddresses.includes(e.arg1)).map(e => e.arg3));
+    const retailToBiz = sumIncoming - b2bToBiz;
+    const bizToSuppliers = sum(outgoing.filter(e => acceptancePointAddresses.includes(e.arg2)).map(e => e.arg3));
+    const bizToLea = sum(outgoing.filter(e => e.arg2 === 'FD3mHcDJRGcKhT8gzbfiV7fuGnd7hHGdd1VMnYd6LiVv4np').map(e => e.arg3));;
+    const bizToDemurrage =
+        startBalance + sumIncoming + sumIssues - sumOutgoing - endBalance;
+    const bizToUnknown = sumOutgoing - bizToSuppliers - bizToLea;
+
+    return {
+        ciiToBiz,
+        b2bToBiz,
+        retailToBiz,
+        bizToSuppliers,
+        bizToLea,
+        bizToDemurrage,
+        bizToUnknown
+    }
 }

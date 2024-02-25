@@ -11,6 +11,7 @@ import {
     getCumulativeRewardsData,
     getFrequencyOfAttendance,
     getTransactionActivityLog,
+    getSankeyReport,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -636,4 +637,81 @@ accounting.get("/transaction-activity", async function (req, res, next) {
         next(e);
     }
 });
+
+
+/**
+ * @swagger
+ * /v1/accounting/sankey-report:
+ *   get:
+ *     description: Retrieve accounting-data for all accounts of a specified cid
+ *     parameters:
+ *       - in: query
+ *         name: account
+ *         required: true
+ *         description: AccountId
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: end
+ *         required: true
+ *         description:  timestamp
+ *         schema:
+ *           type: number
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: timestamp
+ *         schema:
+ *           type: number
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ *     security:
+ *      - cookieAuth: []
+ */
+accounting.get("/sankey-report", async function (req, res, next) {
+    try {
+        if (!req.session.isAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        const api = req.app.get("api");
+        const cid = req.query.cid;
+        const start = req.query.start;
+        const end = req.query.end;
+        const account = req.query.account;
+
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
+
+
+        const allAccounts = await db.getAllUsers();
+        const accountName = allAccounts.find(e => e.address === account).name;
+
+        const data = await getSankeyReport(api, cid, account, start, end)
+
+        res.send(
+            JSON.stringify({
+                data,
+                communityName,
+                accountName
+            })
+        );
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default accounting;
+
+
