@@ -687,7 +687,7 @@ accounting.get("/sankey-report", async function (req, res, next) {
         }
         const api = req.app.get("api");
         const cid = req.query.cid;
-        const start = req.query.start;
+        const start = Math.max(req.query.start, 1651156848222);
         const end = req.query.end;
         const account = req.query.account;
 
