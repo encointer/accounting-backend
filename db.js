@@ -143,7 +143,7 @@ class Database {
     async getAllUsers() {
         return this.users
             .find(
-                {},
+                {isAdmin: false},
                 { projection: { address: 1, name: 1, isAdmin: 1, _id: 0 } }
             )
             .toArray();
