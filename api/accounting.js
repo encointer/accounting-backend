@@ -700,7 +700,7 @@ accounting.get("/sankey-report", async function (req, res, next) {
 
         let data, accountName;
         if (account === "all") {
-            accountName = "all accounts";
+            accountName = "all biz accounts";
             let allResults = await Promise.all(
                 acceptancePointAddresses.map((a) =>
                     getSankeyReport(
