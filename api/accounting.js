@@ -19,7 +19,7 @@ import {
     getBlockNumberByTimestamp,
 } from "../graphQl.js";
 import db from "../db.js";
-import { parseCid } from "../util.js";
+import { parseCid, reduceObjects } from "../util.js";
 
 const accounting = express.Router();
 
@@ -534,7 +534,7 @@ accounting.get("/reputables-by-cindex", async function (req, res, next) {
         const community = await db.getCommunity(cid);
         const communityName = community.name;
 
-        let cumulativeRewardsData = await getCumulativeRewardsData(api, cid)
+        let cumulativeRewardsData = await getCumulativeRewardsData(api, cid);
         res.send(
             JSON.stringify({
                 data: cumulativeRewardsData,
@@ -566,28 +566,25 @@ accounting.get("/reputables-by-cindex", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  */
-accounting.get(
-    "/frequency-of-attendance",
-    async function (req, res, next) {
-        try {
-            const api = req.app.get("api");
-            const cid = req.query.cid;
+accounting.get("/frequency-of-attendance", async function (req, res, next) {
+    try {
+        const api = req.app.get("api");
+        const cid = req.query.cid;
 
-            const community = await db.getCommunity(cid);
-            const communityName = community.name;
+        const community = await db.getCommunity(cid);
+        const communityName = community.name;
 
-            const data = await getFrequencyOfAttendance(api, cid)
-            res.send(
-                JSON.stringify({
-                    data,
-                    communityName,
-                })
-            );
-        } catch (e) {
-            next(e);
-        }
+        const data = await getFrequencyOfAttendance(api, cid);
+        res.send(
+            JSON.stringify({
+                data,
+                communityName,
+            })
+        );
+    } catch (e) {
+        next(e);
     }
-);
+});
 
 /**
  * @swagger
@@ -621,11 +618,7 @@ accounting.get("/transaction-activity", async function (req, res, next) {
         const year = parseInt(req.query.year || yearNow);
         if (year < yearNow) month = 11;
 
-        const data = await getTransactionActivityLog(
-            cid,
-            year,
-            month
-        );
+        const data = await getTransactionActivityLog(cid, year, month);
         res.send(
             JSON.stringify({
                 data,
@@ -637,7 +630,6 @@ accounting.get("/transaction-activity", async function (req, res, next) {
         next(e);
     }
 });
-
 
 /**
  * @swagger
@@ -694,17 +686,56 @@ accounting.get("/sankey-report", async function (req, res, next) {
         const community = await db.getCommunity(cid);
         const communityName = community.name;
 
+        const startBlockNumber = await getBlockNumberByTimestamp(start);
+        const endBlockNumber = await getBlockNumberByTimestamp(end);
 
-        const allAccounts = await db.getAllUsers();
-        const accountName = allAccounts.find(e => e.address === account).name;
+        let acceptancePointAddresses = await db.getAcceptancePointAddresses(
+            cid
+        );
+        // encointer verein address, this is aleadry accounted for as lea buy back
+        acceptancePointAddresses = acceptancePointAddresses.filter(
+            (a) => a !== "EG6vZCnvhQPSJRVxorae4xoP5jZKyMQMahYRQfFDyG21KJC"
+        );
+        acceptancePointAddresses = [...new Set(acceptancePointAddresses)];
 
-        const data = await getSankeyReport(api, cid, account, start, end)
+        let data, accountName;
+        if (account === "all") {
+            accountName = "all accounts";
+            let allResults = await Promise.all(
+                acceptancePointAddresses.map((a) =>
+                    getSankeyReport(
+                        api,
+                        cid,
+                        a,
+                        start,
+                        end,
+                        startBlockNumber,
+                        endBlockNumber,
+                        acceptancePointAddresses
+                    )
+                )
+            );
+            data = reduceObjects(allResults);
+        } else {
+            let allAccounts = await db.getAllUsers();
+            accountName = allAccounts.find((e) => e.address === account).name;
+            data = await getSankeyReport(
+                api,
+                cid,
+                account,
+                start,
+                end,
+                startBlockNumber,
+                endBlockNumber,
+                acceptancePointAddresses
+            );
+        }
 
         res.send(
             JSON.stringify({
                 data,
                 communityName,
-                accountName
+                accountName,
             })
         );
     } catch (e) {
@@ -713,5 +744,3 @@ accounting.get("/sankey-report", async function (req, res, next) {
 });
 
 export default accounting;
-
-

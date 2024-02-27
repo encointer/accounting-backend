@@ -196,7 +196,8 @@ export async function gatherTransactionData(start, end, address, cid) {
     const outgoing = await getTransfers(start, end, address, cid, OUTGOING);
 
     // hack to exclude cid fuckup transactions
-    // incoming = incoming.filter((e) => !excludeEvents.includes(e.id));
+    // const excludeEvents = ["1064499-1161", "820314-1", "819843-1", "1064499-275"];
+    //  incoming = incoming.filter((e) => !excludeEvents.includes(e.id));
 
     const issues = await getIssues(start, end, address, cid);
 
@@ -218,7 +219,8 @@ export async function gatherTransactionData(start, end, address, cid) {
 
 export async function getBlockNumberByTimestamp(timestamp) {
     let block = (await getClosestBlock(timestamp)).blocks.nodes[0];
-    return block.blockHeight;
+    const blockNumber = block.blockHeight;
+    return blockNumber;
 }
 
 export async function getTransactionVolume(cid, start, end) {
@@ -240,7 +242,9 @@ export async function getAllBlocksByBlockHeights(heights) {
         }
     });
     for (let i = 0; i < remainingHeights.length; i += 10) {
-        let blocks = await getBlocksByBlockHeights(remainingHeights.slice(i, i + 10));
+        let blocks = await getBlocksByBlockHeights(
+            remainingHeights.slice(i, i + 10)
+        );
         blocks.forEach((b) => (blockCache[b.blockHeight] = b));
         result.push(...blocks);
     }

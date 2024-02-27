@@ -47,3 +47,20 @@ export function mapRescueCids(cid, blockNumber) {
     if(blockNumber < 806355) newCid = 'u0qj92QX9PQ'
     return newCid
 }
+
+export function reduceObjects(objectsList) {
+    // Use reduce to iterate over the objectsList
+    return objectsList.reduce((result, currentObject) => {
+      // Iterate over the keys of the currentObject
+      Object.keys(currentObject).forEach(key => {
+        // If the key is not in the result object, initialize it with the current value
+        if (!result.hasOwnProperty(key)) {
+          result[key] = currentObject[key];
+        } else {
+          // If the key is already present, add the current value to the existing value
+          result[key] += currentObject[key];
+        }
+      });
+      return result;
+    }, {});
+  }

@@ -660,7 +660,16 @@ export async function getTransactionActivityLog(
     return data;
 }
 
-export async function getSankeyReport(api, cid, account, start, end) {
+export async function getSankeyReport(
+    api,
+    cid,
+    account,
+    start,
+    end,
+    startBlockNumber,
+    endBlockNumber,
+    acceptancePointAddresses
+) {
     const [
         incoming,
         outgoing,
@@ -671,23 +680,18 @@ export async function getSankeyReport(api, cid, account, start, end) {
         numDistinctClients,
     ] = await gatherTransactionData(start, end, account, cid);
 
-    const startTimeStamp = await getBlockNumberByTimestamp(start);
-    const endTimestamp = await getBlockNumberByTimestamp(end);
-
     const startBalance = await getDemurrageAdjustedBalance(
         api,
         account,
         cid,
-        startTimeStamp
+        startBlockNumber
     );
     const endBalance = await getDemurrageAdjustedBalance(
         api,
         account,
         cid,
-        endTimestamp
+        endBlockNumber
     );
-
-    const acceptancePointAddresses = await db.getAcceptancePointAddresses(cid);
 
     const sum = (arr) => arr.reduce((partialSum, a) => partialSum + a, 0);
     const ciiToBiz = sumIssues;
