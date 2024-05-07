@@ -184,7 +184,7 @@ accounting.get("/selected-range-data", async function (req, res, next) {
  */
 accounting.get("/account-overview", async function (req, res, next) {
     try {
-        if (!req.session.isAdmin) {
+        if (!req.session.isReadonlyAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -251,7 +251,7 @@ accounting.get("/account-overview", async function (req, res, next) {
  */
 accounting.get("/all-accounts-data", async function (req, res, next) {
     try {
-        if (!req.session.isAdmin) {
+        if (!req.session.isReadonlyAdmin) {
             res.sendStatus(403);
             return;
         }
@@ -424,8 +424,13 @@ accounting.get("/transaction-log", async function (req, res, next) {
  */
 accounting.get("/money-velocity-report", async function (req, res, next) {
     try {
+        if (!req.session.isReadonlyAdmin) {
+            res.sendStatus(403);
+            return;
+        }
         const api = req.app.get("api");
         const cid = req.query.cid;
+        const useTotalVolume = req.query.useTotalVolume === 'true';
 
         const community = await db.getCommunity(cid);
         const communityName = community.name;
@@ -438,7 +443,7 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
 
         const data = {};
         for (let i = 0; i <= month; i++) {
-            data[i] = await getMoneyVelocity(api, cid, year, i);
+            data[i] = await getMoneyVelocity(api, cid, year, i, useTotalVolume);
         }
         res.send(
             JSON.stringify({
@@ -480,6 +485,10 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
  */
 accounting.get("/volume-report", async function (req, res, next) {
     try {
+        if (!req.session.isReadonlyAdmin) {
+            res.sendStatus(403);
+            return;
+        }
         const cid = req.query.cid;
 
         const community = await db.getCommunity(cid);
@@ -529,6 +538,10 @@ accounting.get("/volume-report", async function (req, res, next) {
  */
 accounting.get("/reputables-by-cindex", async function (req, res, next) {
     try {
+        if (!req.session.isReadonlyAdmin) {
+            res.sendStatus(403);
+            return;
+        }
         const api = req.app.get("api");
         const cid = req.query.cid;
         const community = await db.getCommunity(cid);
@@ -568,6 +581,10 @@ accounting.get("/reputables-by-cindex", async function (req, res, next) {
  */
 accounting.get("/frequency-of-attendance", async function (req, res, next) {
     try {
+        if (!req.session.isReadonlyAdmin) {
+            res.sendStatus(403);
+            return;
+        }
         const api = req.app.get("api");
         const cid = req.query.cid;
 
@@ -608,6 +625,10 @@ accounting.get("/frequency-of-attendance", async function (req, res, next) {
  */
 accounting.get("/transaction-activity", async function (req, res, next) {
     try {
+        if (!req.session.isReadonlyAdmin) {
+            res.sendStatus(403);
+            return;
+        }
         const cid = req.query.cid;
 
         const community = await db.getCommunity(cid);
@@ -673,7 +694,7 @@ accounting.get("/transaction-activity", async function (req, res, next) {
  */
 accounting.get("/sankey-report", async function (req, res, next) {
     try {
-        if (!req.session.isAdmin) {
+        if (!req.session.isReadonlyAdmin) {
             res.sendStatus(403);
             return;
         }

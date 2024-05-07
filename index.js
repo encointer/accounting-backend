@@ -7,7 +7,6 @@ import cors from "cors";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import cookieSession from "cookie-session";
-
 const swaggerDefinition = {
     openapi: "3.0.0",
     info: {
@@ -51,7 +50,6 @@ async function main() {
     });
     const app = express();
     app.set("api", api);
-
     app.use(function (req, res, next) {
         console.log("Received new request:", req.url);
         var send = res.send;

@@ -81,7 +81,7 @@ class Database {
         return null;
     }
 
-    async upsertUser(address, password, name, isAdmin = false) {
+    async upsertUser(address, password, name, isAdmin = false, isReadonlyAdmin = false) {
         await this.users.replaceOne(
             { address },
             {
@@ -89,6 +89,7 @@ class Database {
                 name,
                 passwordHash: await bcrypt.hash(password, 10),
                 isAdmin,
+                isReadonlyAdmin,
             },
             {
                 upsert: true,

@@ -13,6 +13,10 @@ import {
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
 function canBeCached(month, year) {
+    return monthIsOver(month, year)
+}
+
+function monthIsOver(month, year) {
     const now = new Date();
     const yearNow = now.getUTCFullYear();
     let monthNow = now.getUTCMonth();
@@ -416,7 +420,7 @@ async function getTotalIssuance(api, cid, blockNumber) {
         ).principal.bits
     );
 }
-export async function getMoneyVelocity(api, cid, year, month) {
+export async function getMoneyVelocity(api, cid, year, month, useTotalVolume=false) {
     const cachedData = await db.getFromGeneralCache("moneyVelocity", {
         cid,
         year,
@@ -424,13 +428,26 @@ export async function getMoneyVelocity(api, cid, year, month) {
     });
     if (cachedData.length === 1) return cachedData[0].moneyVelocity;
 
-    const cachedAccountingData = await db.getFromAccountDataCacheByMonth(
-        month,
-        year,
-        cid
-    );
+    let totalTurnoverOrVolume = 0;
 
-    if (cachedAccountingData.length === 0) return 0;
+    if (useTotalVolume){
+        if(!monthIsOver(month, year)) return 0;
+        totalTurnoverOrVolume = await getVolume(cid, year, month);}
+    else {
+        const cachedAccountingData = await db.getFromAccountDataCacheByMonth(
+            month,
+            year,
+            cid
+        );
+    
+        if (cachedAccountingData.length === 0) return 0;
+        totalTurnoverOrVolume = cachedAccountingData.reduce(
+            (acc, cur) => acc + cur.sumIncoming,
+            0
+        );
+    }
+
+
     const firstBlockOfMonth = await getFirstBlockOfMonth(year, month);
     const lastBlockOfMonth = await getLastBlockOfMonth(api, year, month);
     const totalIssuanceStart = await getTotalIssuance(
@@ -442,12 +459,7 @@ export async function getMoneyVelocity(api, cid, year, month) {
 
     const averagetotalIssuance = (totalIssuanceStart + totalIssuanceEnd) * 0.5;
 
-    const totalTurnover = cachedAccountingData.reduce(
-        (acc, cur) => acc + cur.sumIncoming,
-        0
-    );
-
-    const moneyVelocity = (totalTurnover * 12) / averagetotalIssuance;
+    const moneyVelocity = (totalTurnoverOrVolume * 12) / averagetotalIssuance;
     if (canBeCached(month, year)) {
         db.insertIntoGeneralCache(
             "moneyVelocity",

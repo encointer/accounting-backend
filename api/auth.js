@@ -13,11 +13,13 @@ auth.post("/authenticate", async function (req, res, next) {
         }
         req.session.address = user.address;
         req.session.isAdmin = user.isAdmin;
+        req.session.isReadonlyAdmin = user.isReadonlyAdmin;
         req.session.name = user.name;
         res.send(
             JSON.stringify({
                 address: user.address,
                 isAdmin: user.isAdmin,
+                isReadonlyAdmin: user.isReadonlyAdmin,
                 name: user.name,
             })
         );
@@ -32,6 +34,7 @@ auth.get("/me", async function (req, res, next) {
             JSON.stringify({
                 address: req.session.address,
                 isAdmin: req.session.isAdmin,
+                isReadonlyAdmin: req.session.isReadonlyAdmin,
                 name: req.session.name,
             })
         );
@@ -120,7 +123,7 @@ auth.delete("/users", async function (req, res, next) {
 
 auth.get("/users", async function (req, res, next) {
     try {
-        if (!req.session.isAdmin) {
+        if (!req.session.isReadonlyAdmin) {
             res.sendStatus(403);
             return;
         }
