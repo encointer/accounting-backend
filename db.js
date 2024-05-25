@@ -9,6 +9,7 @@ class Database {
             sslValidate: true,
         });
         this.dataCache = this.dbClient.db("data_cache");
+        this.indexer = this.dbClient.db("encointerIndexer");
         this.accountData = this.dataCache.collection("account_data");
         this.rewardsData = this.dataCache.collection("rewards_data");
         this.generalCache = this.dataCache.collection("general_cache");
