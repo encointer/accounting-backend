@@ -13,7 +13,7 @@ import {
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
 
 function canBeCached(month, year) {
-    return monthIsOver(month, year)
+    return monthIsOver(month, year);
 }
 
 function monthIsOver(month, year) {
@@ -420,7 +420,13 @@ async function getTotalIssuance(api, cid, blockNumber) {
         ).principal.bits
     );
 }
-export async function getMoneyVelocity(api, cid, year, month, useTotalVolume=false) {
+export async function getMoneyVelocity(
+    api,
+    cid,
+    year,
+    month,
+    useTotalVolume = false
+) {
     const cachedData = await db.getFromGeneralCache("moneyVelocity", {
         cid,
         year,
@@ -430,23 +436,22 @@ export async function getMoneyVelocity(api, cid, year, month, useTotalVolume=fal
 
     let totalTurnoverOrVolume = 0;
 
-    if (useTotalVolume){
-        if(!monthIsOver(month, year)) return 0;
-        totalTurnoverOrVolume = await getVolume(cid, year, month);}
-    else {
+    if (useTotalVolume) {
+        if (!monthIsOver(month, year)) return 0;
+        totalTurnoverOrVolume = await getVolume(cid, year, month);
+    } else {
         const cachedAccountingData = await db.getFromAccountDataCacheByMonth(
             month,
             year,
             cid
         );
-    
+
         if (cachedAccountingData.length === 0) return 0;
         totalTurnoverOrVolume = cachedAccountingData.reduce(
             (acc, cur) => acc + cur.sumIncoming,
             0
         );
     }
-
 
     const firstBlockOfMonth = await getFirstBlockOfMonth(year, month);
     const lastBlockOfMonth = await getLastBlockOfMonth(api, year, month);
@@ -742,4 +747,76 @@ export async function getSankeyReport(
         bizToDemurrage,
         bizToUnknown,
     };
+}
+
+export async function getTransactionLogWithNewIndexer(
+    api,
+    cid,
+    account,
+    start,
+    end
+) {
+    const getOutgoingTransactions = async () => {
+        const cursor = await db.indexer.collection("events").find({
+            section: "encointerBalances",
+            method: "Transferred",
+            "data.1": account,
+            "data.0": cid,
+            timestamp: { $gte: start, $lte: end },
+        });
+        return await cursor.toArray();
+    };
+
+    const getIncomingTransactions = async () => {
+        const cursor = await db.indexer.collection("events").find({
+            section: "encointerBalances",
+            method: "Transferred",
+            "data.2": account,
+            "data.0": cid,
+            timestamp: { $gte: start, $lte: end },
+        });
+        return await cursor.toArray();
+    };
+
+    const getIssues = async () => {
+        const cursor = await db.indexer.collection("events").find({
+            section: "encointerBalances",
+            method: "Issued",
+            "data.1": account,
+            "data.0": cid,
+            timestamp: { $gte: start, $lte: end },
+        });
+        return await cursor.toArray();
+    };
+
+    let outgoingTransactions = await getOutgoingTransactions();
+    outgoingTransactions = outgoingTransactions.map((e) => ({
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
+        counterParty: e.data[2],
+        amount: -e.data[3],
+    }));
+
+    let incomingTransactions = await getIncomingTransactions();
+    incomingTransactions = incomingTransactions.map((e) => ({
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
+        counterParty: e.data[1],
+        amount: e.data[3],
+    }));
+
+    let issues = await getIssues();
+    issues = issues.map((e) => ({
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
+        counterParty: "ISSUANCE",
+        amount: e.data[2],
+    }));
+
+    const txnLog = outgoingTransactions
+        .concat(incomingTransactions)
+        .concat(issues);
+    txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
+
+    return txnLog;
 }

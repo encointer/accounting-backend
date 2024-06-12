@@ -12,6 +12,7 @@ import {
     getFrequencyOfAttendance,
     getTransactionActivityLog,
     getSankeyReport,
+    getTransactionLogWithNewIndexer
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -395,6 +396,24 @@ accounting.get("/transaction-log", async function (req, res, next) {
         next(e);
     }
 });
+
+
+accounting.get("/transaction-log-new-indexer", async function (req, res, next) {
+    try {
+        const query = req.query;
+        const cid = query.cid;
+        const account = query.account;
+        const start = query.start;
+        const end = query.end;
+        const api = req.app.get("api");
+
+        const txnLog = await getTransactionLogWithNewIndexer(api, cid, account, parseInt(start), parseInt(end))
+        res.send(JSON.stringify(txnLog));
+    } catch (e) {
+        next(e);
+    }
+});
+
 
 /**
  * @swagger
