@@ -374,7 +374,7 @@ accounting.get("/rewards-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  */
-accounting.get("/transaction-log", async function (req, res, next) {
+accounting.get("/transaction-log-old", async function (req, res, next) {
     try {
         const query = req.query;
         const cid = query.cid;
@@ -398,7 +398,7 @@ accounting.get("/transaction-log", async function (req, res, next) {
 });
 
 
-accounting.get("/transaction-log-new-indexer", async function (req, res, next) {
+accounting.get("/transaction-log", async function (req, res, next) {
     try {
         const query = req.query;
         const cid = query.cid;
