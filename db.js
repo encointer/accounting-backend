@@ -8,9 +8,8 @@ class Database {
             ssl: true,
             sslValidate: true,
         });
-        this.indexer = this.dbClient.db("encointerIndexer3");
         this.dataCache = this.dbClient.db("data_cache");
-        this.indexer = this.dbClient.db("encointerIndexer");
+        this.indexer = this.dbClient.db("encointerIndexer3");
         this.accountData = this.dataCache.collection("account_data");
         this.rewardsData = this.dataCache.collection("rewards_data");
         this.generalCache = this.dataCache.collection("general_cache");
