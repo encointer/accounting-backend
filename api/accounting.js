@@ -190,7 +190,7 @@ accounting.get("/account-overview", async function (req, res, next) {
         }
 
         const api = req.app.get("api");
-        const timestamp = req.query.timestamp;
+        const timestamp = parseInt(req.query.timestamp);
         const cid = req.query.cid;
         const cidDecoded = parseCid(cid);
         const community = await db.getCommunity(cid);
