@@ -502,7 +502,6 @@ async function getIssuedsWithCindex(cid) {
     const blocks = await getAllBlocksByBlockHeights([
         ...new Set(issueds.map((c) => c.blockNumber)),
     ]);
-    console.log(blocks)
     issueds.forEach((i) => {
         let block = blocks.find((b) => b.height === i.blockNumber);
         i.cindex = block.cindex;
