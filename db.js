@@ -8,8 +8,8 @@ class Database {
             ssl: true,
             sslValidate: true,
         });
-        this.dataCache = this.dbClient.db("data_cache2");
-        this.indexer = this.dbClient.db("encointerIndexer3");
+        this.dataCache = this.dbClient.db("encointer-kusama-accounting-backend-cache");
+        this.indexer = this.dbClient.db("encointer-kusama-pindex");
         this.blocks = this.indexer.collection("blocks")
         this.extrinsics = this.indexer.collection("extrinsics")
         this.events = this.indexer.collection("events")
@@ -18,7 +18,7 @@ class Database {
         this.rewardsData = this.dataCache.collection("rewards_data");
         this.generalCache = this.dataCache.collection("general_cache");
 
-        this.main = this.dbClient.db("main");
+        this.main = this.dbClient.db("encointer-kusama-accounting");
         this.users = this.main.collection("users");
         this.communities = this.main.collection("communities");
         this.vouchers = this.main.collection("vouchers");
