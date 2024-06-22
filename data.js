@@ -258,12 +258,11 @@ async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
     const rewardsIssuedsWithCindexAndNominalIncome = [];
 
     for (const issueEvent of rewardsIssueds) {
-        const h = await api.rpc.chain.getBlockHash(issueEvent.blockHeight);
+        const h = await api.rpc.chain.getBlockHash(issueEvent.blockNumber);
         const apiAt = await api.at(h);
 
-        let mappedCid = mapRescueCids(cid, parseInt(issueEvent.blockHeight));
+        let mappedCid = mapRescueCids(cid, parseInt(issueEvent.blockNumber));
         const cidDecoded = parseCid(mappedCid);
-
         let [nominalIncome, cindex, phase] = await apiAt.queryMulti([
             [apiAt.query.encointerCommunities.nominalIncome, cidDecoded],
             [apiAt.query.encointerScheduler.currentCeremonyIndex],
@@ -275,7 +274,7 @@ async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
             phase.toHuman() === "Registering" ? cindex - 1 : cindex;
         issueEvent.nominalIncome = parseEncointerBalance(nominalIncome.bits);
         // we patch this because on chain the nominal income was not set during the first rescue ceremonie
-        if (parseInt(issueEvent.blockHeight) === 808023)
+        if (parseInt(issueEvent.blockNumber) === 808023)
             issueEvent.nominalIncome = 22;
 
         if (cachedData && cindex.toString() in cachedData) break;
@@ -287,7 +286,7 @@ async function enrichRewardsIssueds(api, rewardsIssueds, cachedData, cid) {
 function reduceRewardsIssuedsWithCindexAndNominalIncome(data) {
     return data.reduce((acc, cur) => {
         const cindex = cur.cindex;
-        const numParticipants = parseInt(cur.arg2);
+        const numParticipants = parseInt(cur.data[2]);
         const nominalIncome = cur.nominalIncome;
         acc[cindex] = acc[cindex] || {};
         acc[cindex].numParticipants =
@@ -333,22 +332,22 @@ export async function gatherRewardsData(api, cid) {
 
 export function generateTxnLog(incoming, outgoing, issues) {
     const incomingLog = incoming.map((e) => ({
-        blockNumber: e.blockHeight,
+        blockNumber: e.blockNumber,
         timestamp: e.timestamp,
-        counterParty: e.arg1,
-        amount: e.arg3,
+        counterParty: e.data[1],
+        amount: e.data[3],
     }));
     const outgoingLog = outgoing.map((e) => ({
-        blockNumber: e.blockHeight,
+        blockNumber: e.blockNumber,
         timestamp: e.timestamp,
-        counterParty: e.arg2,
-        amount: -e.arg3,
+        counterParty: e.data[2],
+        amount: -e.data[3],
     }));
     const issuesLog = issues.map((e) => ({
-        blockNumber: e.blockHeight,
+        blockNumber: e.blockNumber,
         timestamp: e.timestamp,
         counterParty: "ISSUANCE",
-        amount: e.arg2,
+        amount: e.data[2],
     }));
     const txnLog = incomingLog.concat(outgoingLog).concat(issuesLog);
     txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
@@ -501,11 +500,11 @@ export async function getVolume(cid, year, month) {
 async function getIssuedsWithCindex(cid) {
     const issueds = await getAllIssues(cid);
     const blocks = await getAllBlocksByBlockHeights([
-        ...new Set(issueds.map((c) => c.blockHeight)),
+        ...new Set(issueds.map((c) => c.blockNumber)),
     ]);
-
+    console.log(blocks)
     issueds.forEach((i) => {
-        let block = blocks.find((b) => b.blockHeight === i.blockHeight);
+        let block = blocks.find((b) => b.height === i.blockNumber);
         i.cindex = block.cindex;
         if (block.phase === "REGISTERING") i.cindex--;
     });
@@ -520,7 +519,7 @@ export async function getCumulativeRewardsData(api, cid) {
 
     const reputablesByCindex = issueds.reduce((acc, cur) => {
         acc[cur.cindex] = acc[cur.cindex] || [];
-        acc[cur.cindex].push(cur.arg1);
+        acc[cur.cindex].push(cur.data[1]);
         return acc;
     }, {});
 
@@ -555,7 +554,7 @@ export async function getFrequencyOfAttendance(api, cid) {
     const data = {};
 
     issueds.forEach((i) => {
-        const address = i.arg1;
+        const address = i.data[1];
         data[address] = data[address] || {
             registrations: 0,
             reputations: 0,
@@ -569,12 +568,12 @@ export async function getFrequencyOfAttendance(api, cid) {
     });
 
     repuableRegistrations.forEach((r) => {
-        data[r.arg2] = data[r.arg2] || {
+        data[r.data[2]] = data[r.data[2]] || {
             registrations: 0,
             reputations: 0,
             potentialCindexes: new Set(),
         };
-        data[r.arg2].registrations += 1;
+        data[r.data[2]].registrations += 1;
     });
 
     const result = {};
@@ -602,13 +601,13 @@ async function getTransactionActiviyData(cid, year, month) {
 
     const totalTransactionCount = transfers.length;
     const voucherTransactionCount = transfers.filter((t) =>
-        voucherAddresses.includes(t.arg2)
+        voucherAddresses.includes(t.data[2])
     ).length;
     const govTransactionCount = transfers.filter((t) =>
-        govAddresses.includes(t.arg2)
+        govAddresses.includes(t.data[2])
     ).length;
     const acceptancePointTransactionCount = transfers.filter((t) =>
-        acceptancePointAddresses.includes(t.arg2)
+        acceptancePointAddresses.includes(t.data[2])
     ).length;
 
     return {
@@ -714,14 +713,14 @@ export async function getSankeyReport(
     const ciiToBiz = sumIssues;
     const b2bToBiz = sum(
         incoming
-            .filter((e) => acceptancePointAddresses.includes(e.arg1))
-            .map((e) => e.arg3)
+            .filter((e) => acceptancePointAddresses.includes(e.data[1]))
+            .map((e) => e.data[3])
     );
     const retailToBiz = sumIncoming - b2bToBiz;
     const bizToSuppliers = sum(
         outgoing
-            .filter((e) => acceptancePointAddresses.includes(e.arg2))
-            .map((e) => e.arg3)
+            .filter((e) => acceptancePointAddresses.includes(e.data[2]))
+            .map((e) => e.data[3])
     );
     const bizToLea = sum(
         outgoing
@@ -730,9 +729,9 @@ export async function getSankeyReport(
                     "FD3mHcDJRGcKhT8gzbfiV7fuGnd7hHGdd1VMnYd6LiVv4np",
                     "5DkVGErvJLPTgec4C73Xk7boEVTKXJYDuCro2kPHkB3XGARh",
                     "EG6vZCnvhQPSJRVxorae4xoP5jZKyMQMahYRQfFDyG21KJC",
-                ].includes(e.arg2)
+                ].includes(e.data[2])
             )
-            .map((e) => e.arg3)
+            .map((e) => e.data[3])
     );
     const bizToDemurrage =
         startBalance + sumIncoming + sumIssues - sumOutgoing - endBalance;
@@ -747,76 +746,4 @@ export async function getSankeyReport(
         bizToDemurrage,
         bizToUnknown,
     };
-}
-
-export async function getTransactionLogWithNewIndexer(
-    api,
-    cid,
-    account,
-    start,
-    end
-) {
-    const getOutgoingTransactions = async () => {
-        const cursor = await db.indexer.collection("events").find({
-            section: "encointerBalances",
-            method: "Transferred",
-            "data.1": account,
-            "data.0": cid,
-            timestamp: { $gte: start, $lte: end },
-        });
-        return await cursor.toArray();
-    };
-
-    const getIncomingTransactions = async () => {
-        const cursor = await db.indexer.collection("events").find({
-            section: "encointerBalances",
-            method: "Transferred",
-            "data.2": account,
-            "data.0": cid,
-            timestamp: { $gte: start, $lte: end },
-        });
-        return await cursor.toArray();
-    };
-
-    const getIssues = async () => {
-        const cursor = await db.indexer.collection("events").find({
-            section: "encointerBalances",
-            method: "Issued",
-            "data.1": account,
-            "data.0": cid,
-            timestamp: { $gte: start, $lte: end },
-        });
-        return await cursor.toArray();
-    };
-
-    let outgoingTransactions = await getOutgoingTransactions();
-    outgoingTransactions = outgoingTransactions.map((e) => ({
-        blockNumber: e.blockNumber.toString(),
-        timestamp: e.timestamp.toString(),
-        counterParty: e.data[2],
-        amount: -e.data[3],
-    }));
-
-    let incomingTransactions = await getIncomingTransactions();
-    incomingTransactions = incomingTransactions.map((e) => ({
-        blockNumber: e.blockNumber.toString(),
-        timestamp: e.timestamp.toString(),
-        counterParty: e.data[1],
-        amount: e.data[3],
-    }));
-
-    let issues = await getIssues();
-    issues = issues.map((e) => ({
-        blockNumber: e.blockNumber.toString(),
-        timestamp: e.timestamp.toString(),
-        counterParty: "ISSUANCE",
-        amount: e.data[2],
-    }));
-
-    const txnLog = outgoingTransactions
-        .concat(incomingTransactions)
-        .concat(issues);
-    txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
-
-    return txnLog;
 }

@@ -1,194 +1,99 @@
-import { parseEncointerBalance } from "@encointer/types";
-import { INDEXER_ENDPOINT } from "./consts.js";
-import fetch from "node-fetch";
+import db from "./db.js";
 
 const INCOMING = 2;
 const OUTGOING = 1;
 
-async function graphQlQuery(query, variables) {
-    let res = await fetch(INDEXER_ENDPOINT, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-        },
-        body: JSON.stringify({
-            query,
-            variables,
-        }),
-    });
-    if (!res.ok) console.log(await res.text());
-    return (await res.json()).data;
+export async function getBlock(height) {
+    return db.blocks.findOne({ height });
 }
 
-async function getClosestBlock(timestamp) {
-    const query = `query Query($timestamp: BigFloat!){
-        blocks(filter: {timestamp: {lessThanOrEqualTo:$timestamp}}, orderBy: TIMESTAMP_DESC, first:1) {
-          nodes {
-          blockHeight
-          }
-        }
-      }`;
-
-    return graphQlQuery(query, { timestamp });
+export async function getClosestBlock(timestamp) {
+    return db.blocks.findOne(
+        { timestamp: { $lte: timestamp } },
+        { sort: { timestamp: -1 } }
+    );
 }
 
 export async function getAllTransfers(start, end, cid) {
-    const query = `query Query($start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
-      transferreds(filter: {timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
-        nodes {
-        id
-        blockHeight
-        timestamp
-        arg0
-        arg1
-        arg2
-        arg3
-        }
-        pageInfo {
-          endCursor
-          hasNextPage
-        }
-      }
-    }`;
-
-    return getAllPages(query, { start, end, cid });
+    const cursor = await db.indexer.collection("events").find(
+        {
+            section: "encointerBalances",
+            method: "Transferred",
+            "data.0": cid,
+            timestamp: { $gte: start, $lte: end },
+        },
+        { sort: { timestamp: 1 } }
+    );
+    return await cursor.toArray();
 }
 
-async function getTransfers(start, end, address, cid, direction) {
-    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
-      transferreds(filter: {arg${direction}: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
-        nodes {
-        id
-        blockHeight
-        timestamp
-        arg0
-        arg1
-        arg2
-        arg3
-        }
-        pageInfo {
-          endCursor
-          hasNextPage
-        }
-      }
-    }`;
-
-    return getAllPages(query, { address, start, end, cid });
+export async function getTransfers(start, end, address, cid, direction) {
+    let query = {
+        section: "encointerBalances",
+        method: "Transferred",
+        "data.0": cid,
+        timestamp: { $gte: start, $lte: end },
+    };
+    query[`data.${direction}`] = address;
+    const cursor = await db.indexer
+        .collection("events")
+        .find(query, { sort: { timestamp: 1 } });
+    return await cursor.toArray();
 }
 
 async function getIssues(start, end, address, cid) {
-    const query = `query Query($address: String!, $start: BigFloat!, $end: BigFloat!, $cid: String!, $after: Cursor!){
-        issueds(filter: {arg1: { equalTo: $address }, timestamp: {greaterThanOrEqualTo:$start, lessThanOrEqualTo:$end}, arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
-          nodes {
-          id
-          blockHeight
-          timestamp
-          arg0
-          arg1
-          arg2
-          }
-          pageInfo {
-            endCursor
-            hasNextPage
-          }
-        }
-      }`;
-
-    return getAllPages(query, { address, start, end, cid });
+    const cursor = await db.indexer.collection("events").find(
+        {
+            section: "encointerBalances",
+            method: "Issued",
+            "data.1": address,
+            "data.0": cid,
+            timestamp: { $gte: start, $lte: end },
+        },
+        { sort: { timestamp: 1 } }
+    );
+    return await cursor.toArray();
 }
 
 export async function getAllIssues(cid) {
-    const query = `query Query($cid: String!, $after: Cursor!){
-      issueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_ASC, after: $after) {
-        nodes {
-        id
-        blockHeight
-        timestamp
-        arg0
-        arg1
-        arg2
-        }
-        pageInfo {
-          endCursor
-          hasNextPage
-        }
-      }
-    }`;
-
-    return getAllPages(query, { cid });
+    const cursor = await db.indexer.collection("events").find(
+        {
+            section: "encointerBalances",
+            method: "Issued",
+            "data.0": cid,
+        },
+        { sort: { timestamp: 1 } }
+    );
+    return await cursor.toArray();
 }
 
 export async function getRewardsIssueds(cid) {
-    const query = `query Query($cid: String!, $after: Cursor!){
-        rewardsIssueds(filter: {arg0: {equalTo: $cid} }, orderBy: TIMESTAMP_DESC, after: $after) {
-            nodes {
-            id
-            blockHeight
-            timestamp
-            arg0
-            arg1
-            arg2
-            }
-            pageInfo {
-              endCursor
-              hasNextPage
-            }
-          }
-      }`;
-
-    return getAllPages(query, { cid });
+    const cursor = await db.events.find(
+        {
+            section: "encointerCeremonies",
+            method: "RewardsIssued",
+            "data.0": cid,
+        },
+        { sort: { timestamp: -1 } }
+    );
+    return await cursor.toArray();
 }
 
-async function getBlocksByBlockHeights(heights) {
-    const query = `query Query{
-    blocks(filter: {blockHeight: {in:${JSON.stringify(heights)}} }) {
-          nodes {
-          id
-          blockHeight
-          timestamp
-          cindex
-          phase
-          }
-        }
-      }`;
-
-    return (await graphQlQuery(query)).blocks.nodes;
+export async function getBlocksByBlockHeights(heights) {
+    const cursor = await db.indexer.collection("blocks").find({
+        height: { $in: heights },
+    });
+    return await cursor.toArray();
 }
 
 export async function getReputableRegistrations(cid) {
-    const query = `query Query($cid: String!, $after: Cursor!){
-    participantRegistereds(filter: {arg0: {equalTo: $cid}, arg1: {in: ["Reputable","Bootstrapper"]} }, after: $after) {
-        nodes {
-        id
-        blockHeight
-        timestamp
-        arg0
-        arg1
-        arg2
-        }
-        pageInfo {
-          endCursor
-          hasNextPage
-        }
-      }
-  }`;
-
-    return getAllPages(query, { cid });
-}
-
-export async function getAllPages(query, variables) {
-    let response, data;
-    const result = [];
-    variables.after = "";
-    do {
-        response = await graphQlQuery(query, variables);
-        data = Object.values(response)[0];
-        result.push(...data.nodes);
-        variables.after = data?.pageInfo?.endCursor;
-    } while (data?.pageInfo?.hasNextPage);
-
-    return result;
+    const cursor = await db.events.find({
+        section: "encointerCeremonies",
+        method: "ParticipantRegistered",
+        "data.0": cid,
+        "data.1": { $in: ["Reputable", "Bootstrapper"] },
+    });
+    return await cursor.toArray();
 }
 
 export async function gatherTransactionData(start, end, address, cid) {
@@ -201,11 +106,11 @@ export async function gatherTransactionData(start, end, address, cid) {
 
     const issues = await getIssues(start, end, address, cid);
 
-    const sumIssues = issues.reduce((acc, cur) => acc + cur.arg2, 0);
-    const sumIncoming = incoming.reduce((acc, cur) => acc + cur.arg3, 0);
-    const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.arg3, 0);
+    const sumIssues = issues.reduce((acc, cur) => acc + cur.data[2], 0);
+    const sumIncoming = incoming.reduce((acc, cur) => acc + cur.data[3], 0);
+    const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.data[3], 0);
 
-    const numDistinctClients = new Set(incoming.map((e) => e.arg1)).size;
+    const numDistinctClients = new Set(incoming.map((e) => e.data[1])).size;
     return [
         incoming,
         outgoing,
@@ -218,14 +123,14 @@ export async function gatherTransactionData(start, end, address, cid) {
 }
 
 export async function getBlockNumberByTimestamp(timestamp) {
-    let block = (await getClosestBlock(timestamp)).blocks.nodes[0];
-    const blockNumber = block.blockHeight;
+    let block = await getClosestBlock(timestamp);
+    const blockNumber = block.height;
     return blockNumber;
 }
 
 export async function getTransactionVolume(cid, start, end) {
     return (await getAllTransfers(start, end, cid)).reduce(
-        (acc, cur) => acc + cur.arg3,
+        (acc, cur) => acc + cur.data[3],
         0
     );
 }

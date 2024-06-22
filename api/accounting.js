@@ -12,7 +12,6 @@ import {
     getFrequencyOfAttendance,
     getTransactionActivityLog,
     getSankeyReport,
-    getTransactionLogWithNewIndexer
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -374,13 +373,13 @@ accounting.get("/rewards-data", async function (req, res, next) {
  *          '403':
  *              description: Permission denied
  */
-accounting.get("/transaction-log-old", async function (req, res, next) {
+accounting.get("/transaction-log", async function (req, res, next) {
     try {
         const query = req.query;
         const cid = query.cid;
         const account = query.account;
-        const start = query.start;
-        const end = query.end;
+        const start = parseInt(query.start);
+        const end = parseInt(query.end);
 
         const [incoming, outgoing, issues] = await gatherTransactionData(
             start,
@@ -391,23 +390,6 @@ accounting.get("/transaction-log-old", async function (req, res, next) {
 
         const txnLog = generateTxnLog(incoming, outgoing, issues);
 
-        res.send(JSON.stringify(txnLog));
-    } catch (e) {
-        next(e);
-    }
-});
-
-
-accounting.get("/transaction-log", async function (req, res, next) {
-    try {
-        const query = req.query;
-        const cid = query.cid;
-        const account = query.account;
-        const start = query.start;
-        const end = query.end;
-        const api = req.app.get("api");
-
-        const txnLog = await getTransactionLogWithNewIndexer(api, cid, account, parseInt(start), parseInt(end))
         res.send(JSON.stringify(txnLog));
     } catch (e) {
         next(e);
@@ -719,8 +701,8 @@ accounting.get("/sankey-report", async function (req, res, next) {
         }
         const api = req.app.get("api");
         const cid = req.query.cid;
-        const start = Math.max(req.query.start, 1651156848222);
-        const end = req.query.end;
+        const start = Math.max(parseInt(req.query.start), 1651156848222);
+        const end = parseInt(req.query.end);
         const account = req.query.account;
 
         const community = await db.getCommunity(cid);
