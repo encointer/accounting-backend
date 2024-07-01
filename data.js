@@ -332,20 +332,20 @@ export async function gatherRewardsData(api, cid) {
 
 export function generateTxnLog(incoming, outgoing, issues) {
     const incomingLog = incoming.map((e) => ({
-        blockNumber: e.blockNumber,
-        timestamp: e.timestamp,
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
         counterParty: e.data[1],
         amount: e.data[3],
     }));
     const outgoingLog = outgoing.map((e) => ({
-        blockNumber: e.blockNumber,
-        timestamp: e.timestamp,
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
         counterParty: e.data[2],
         amount: -e.data[3],
     }));
     const issuesLog = issues.map((e) => ({
-        blockNumber: e.blockNumber,
-        timestamp: e.timestamp,
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
         counterParty: "ISSUANCE",
         amount: e.data[2],
     }));
