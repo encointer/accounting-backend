@@ -23,6 +23,28 @@ function monthIsOver(month, year) {
     return year < yearNow || month < monthNow;
 }
 
+function monthIsInFuture(month, year) {
+    const now = new Date();
+    const yearNow = now.getUTCFullYear();
+    let monthNow = now.getUTCMonth();
+    return year > yearNow || (year === yearNow && month > monthNow);
+}
+
+function getMonthProgress() {
+    const currentDate = new Date();
+
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+
+    const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const currentDay = currentDate.getDate();
+
+    const monthProgress = (currentDay / totalDaysInMonth);
+
+    return monthProgress.toFixed(4);
+}
+
 export async function gatherAccountingOverview(
     api,
     account,
@@ -426,6 +448,9 @@ export async function getMoneyVelocity(
     month,
     useTotalVolume = false
 ) {
+    if(monthIsInFuture(month, year)) throw Exception("month is in future")
+
+    const monthOver = monthIsOver(month, year)
     const cachedData = await db.getFromGeneralCache("moneyVelocity", {
         cid,
         year,
@@ -436,17 +461,26 @@ export async function getMoneyVelocity(
     let totalTurnoverOrVolume = 0;
 
     if (useTotalVolume) {
-        if (!monthIsOver(month, year)) return 0;
         totalTurnoverOrVolume = await getVolume(cid, year, month);
     } else {
-        const cachedAccountingData = await db.getFromAccountDataCacheByMonth(
-            month,
-            year,
-            cid
-        );
+        let accountingData;
+        if (monthOver) {
+            accountingData = await db.getFromAccountDataCacheByMonth(
+                month,
+                year,
+                cid
+            );
+        } else {
+            accountingData = await getAccountingData(
+                api,
+                account,
+                cid,
+                year,
+                i
+            );
+        }
 
-        if (cachedAccountingData.length === 0) return 0;
-        totalTurnoverOrVolume = cachedAccountingData.reduce(
+        totalTurnoverOrVolume = accountingData.reduce(
             (acc, cur) => acc + cur.sumIncoming,
             0
         );
@@ -461,7 +495,14 @@ export async function getMoneyVelocity(
     );
     const totalIssuanceEnd = await getTotalIssuance(api, cid, lastBlockOfMonth);
 
+    console.log(totalIssuanceStart, totalIssuanceEnd)
     const averagetotalIssuance = (totalIssuanceStart + totalIssuanceEnd) * 0.5;
+
+    if(!monthOver) {
+        const monthProgress = getMonthProgress()
+        if(monthProgress === 0) return 0
+        totalTurnoverOrVolume /= monthProgress
+    }
 
     const moneyVelocity = (totalTurnoverOrVolume * 12) / averagetotalIssuance;
     if (canBeCached(month, year)) {
