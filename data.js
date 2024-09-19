@@ -495,7 +495,6 @@ export async function getMoneyVelocity(
     );
     const totalIssuanceEnd = await getTotalIssuance(api, cid, lastBlockOfMonth);
 
-    console.log(totalIssuanceStart, totalIssuanceEnd)
     const averagetotalIssuance = (totalIssuanceStart + totalIssuanceEnd) * 0.5;
 
     if(!monthOver) {
