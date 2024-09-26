@@ -640,7 +640,7 @@ accounting.get("/transaction-activity", async function (req, res, next) {
         const year = parseInt(req.query.year || yearNow);
         if (year < yearNow) month = 11;
 
-        const data = await getTransactionActivityLog(cid, year, month);
+        const data = await getTransactionActivityLog(cid, year, month, true);
         res.send(
             JSON.stringify({
                 data,
