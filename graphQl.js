@@ -27,6 +27,22 @@ export async function getAllTransfers(start, end, cid) {
     return await cursor.toArray();
 }
 
+export async function getAllNativeTransfers(start, end) {
+    const cursor = await db.indexer.collection("extrinsics").find(
+      {
+          section: "balances",
+          $or: [
+              { method: "transferKeepAlive" },
+              { method: "transferAllowDeath" },
+              { method: "transfer" }
+          ],
+          timestamp: { $gte: start, $lte: end },
+      },
+      { sort: { timestamp: 1 } }
+    );
+    return await cursor.toArray();
+}
+
 export async function getTransfers(start, end, address, cid, direction) {
     let query = {
         section: "encointerBalances",
@@ -38,6 +54,27 @@ export async function getTransfers(start, end, address, cid, direction) {
     const cursor = await db.indexer
         .collection("events")
         .find(query, { sort: { timestamp: 1 } });
+    return await cursor.toArray();
+}
+
+export async function getNativeTransfers(start, end, address, cid, direction) {
+    let query = {
+        section: "balances",
+        $or: [
+            { method: "transferKeepAlive" },
+            { method: "transferAllowDeath" },
+            { method: "transfer" }
+        ],
+        timestamp: { $gte: start, $lte: end },
+    };
+    if (direction === INCOMING) {
+        query["args.dest.Id"] = address;
+    } else {
+        query["signer.Id"] = address;
+    }
+    const cursor = await db.indexer
+      .collection("extrinsics")
+      .find(query, { sort: { timestamp: 1 } });
     return await cursor.toArray();
 }
 
@@ -118,6 +155,23 @@ export async function gatherTransactionData(start, end, address, cid) {
         sumIncoming,
         sumOutgoing,
         sumIssues,
+        numDistinctClients,
+    ];
+}
+
+export async function gatherNativeTransactionData(start, end, address) {
+    let incoming = await getNativeTransfers(start, end, address, cid, INCOMING);
+    const outgoing = await getNativeTransfers(start, end, address, cid, OUTGOING);
+
+    const sumIncoming = incoming.reduce((acc, cur) => acc + cur.args.value, 0);
+    const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.args.value, 0);
+
+    const numDistinctClients = new Set(incoming.map((e) => e.signer.Id)).size;
+    return [
+        incoming,
+        outgoing,
+        sumIncoming,
+        sumOutgoing,
         numDistinctClients,
     ];
 }

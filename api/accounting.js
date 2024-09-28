@@ -11,10 +11,11 @@ import {
     getCumulativeRewardsData,
     getFrequencyOfAttendance,
     getTransactionActivityLog,
-    getSankeyReport,
+    getSankeyReport, generateNativeTxnLog,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
+    gatherNativeTransactionData,
     gatherTransactionData,
     getBlockNumberByTimestamp,
 } from "../graphQl.js";
@@ -396,6 +397,58 @@ accounting.get("/transaction-log", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/accounting/native-transaction-log:
+ *   get:
+ *     description: Retrieve transaction log for a specified account, only native token, between start and end
+ *     parameters:
+ *       - in: query
+ *         name: start
+ *         required: true
+ *         description: Timestamp
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: end
+ *         required: true
+ *         description: Timestamp
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: account
+ *         required: true
+ *         description: AccountId
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ */
+accounting.get("/native-transaction-log", async function (req, res, next) {
+    try {
+        const query = req.query;
+        const account = query.account;
+        const start = parseInt(query.start);
+        const end = parseInt(query.end);
+
+        const [incoming, outgoing] = await gatherNativeTransactionData(
+          start,
+          end,
+          account,
+        );
+
+        const txnLog = generateNativeTxnLog(incoming, outgoing, issues);
+
+        res.send(JSON.stringify(txnLog));
+    } catch (e) {
+        next(e);
+    }
+});
 
 /**
  * @swagger

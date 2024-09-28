@@ -376,6 +376,24 @@ export function generateTxnLog(incoming, outgoing, issues) {
     return txnLog;
 }
 
+export function generateNativeTxnLog(incoming, outgoing) {
+    const incomingLog = incoming.map((e) => ({
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
+        counterParty: e.signer.Id,
+        amount: e.args.value,
+    }));
+    const outgoingLog = outgoing.map((e) => ({
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
+        counterParty: e.args.dest.Id,
+        amount: -e.args.value,
+    }));
+    const txnLog = incomingLog.concat(outgoingLog);
+    txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
+    return txnLog;
+}
+
 function groupTransactionsByDay(txnLog) {
     return txnLog.reduce((acc, cur) => {
         const d = new Date(parseInt(cur.timestamp));
