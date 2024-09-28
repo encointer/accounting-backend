@@ -1,4 +1,5 @@
 import base58 from "bs58";
+import BN from "bn.js";
 
 export function getMonthName(idx) {
     const monthNames = [
@@ -63,4 +64,16 @@ export function reduceObjects(objectsList) {
       });
       return result;
     }, {});
+  }
+
+  export function toNativeDecimal(value) {
+    const cleanedValue = value.toString().replace(/,/g, '');
+    const bnValue = new BN(cleanedValue, 10);
+    const divisor = new BN('1000000000000', 10);
+    const { div: quotient, mod: remainder } = bnValue.divmod(divisor);
+    // Convert quotient and remainder to strings
+    const quotientStr = quotient.toString(10);
+    const remainderStr = remainder.toString(10).padStart(12, '0');
+    // Combine quotient and remainder to form a decimal number
+    return parseFloat(`${quotientStr}.${remainderStr}`);
   }

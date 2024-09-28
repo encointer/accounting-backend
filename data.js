@@ -10,7 +10,7 @@ import {
     getReputableRegistrations,
     getAllTransfers,
 } from "./graphQl.js";
-import { getMonthName, mapRescueCids, parseCid } from "./util.js";
+import {getMonthName, mapRescueCids, parseCid, toNativeDecimal} from "./util.js";
 import BN from "bn.js";
 
 function canBeCached(month, year) {
@@ -377,32 +377,39 @@ export function generateTxnLog(incoming, outgoing, issues) {
     return txnLog;
 }
 
-export function generateNativeTxnLog(incoming, outgoing, outgoingXcm) {
+export function generateNativeTxnLog(incoming, incomingDrips, outgoing, outgoingXcm) {
     const incomingLog = incoming.map((e) => ({
         blockNumber: e.blockNumber.toString(),
         timestamp: e.timestamp.toString(),
         counterParty: e.signer.Id,
-        amount: e.args.value,
+        amount: toNativeDecimal(e.args.value),
     }));
+    const incomingDripsLog = incomingDrips.map((e) => {
+        return {
+            blockNumber: e.blockNumber.toString(),
+            timestamp: e.timestamp.toString(),
+            counterParty: e.data[0],
+            amount: toNativeDecimal(e.data[2]),
+        }
+    });
     const outgoingLog = outgoing.map((e) => ({
         blockNumber: e.blockNumber.toString(),
         timestamp: e.timestamp.toString(),
         counterParty: e.args.dest.Id,
-        amount: -e.args.value,
+        amount: -1 * toNativeDecimal(e.args.value),
     }));
     const outgoingXcmLog = outgoingXcm.map((e) => {
         let amount;
-        console.log("xcm: " + JSON.stringify(e));
         if (e.args.assets.V1) {
-            amount = new BN(e.args.assets.V1[0].fun.Fungible.replace(/,/g, ''));
+            amount = toNativeDecimal(e.args.assets.V1[0].fun.Fungible);
         } else if (e.args.assets.V2) {
-            amount = new BN(e.args.assets.V2[0].fun.Fungible.replace(/,/g, ''));
+            amount = toNativeDecimal(e.args.assets.V2[0].fun.Fungible);
         } else if (e.args.assets.V3) {
-            amount = new BN(e.args.assets.V3[0].fun.Fungible.replace(/,/g, ''));
+            amount = toNativeDecimal(e.args.assets.V3[0].fun.Fungible);
         } else if (e.args.assets.V4) {
-            amount = new BN(e.args.assets.V4[0].fun.Fungible.replace(/,/g, ''));
+            amount = toNativeDecimal(e.args.assets.V4[0].fun.Fungible);
         } else {
-            amount = new BN(0);
+            amount = 0;
         }
         let dest;
         if (e.args.dest.V1) {
@@ -432,7 +439,7 @@ export function generateNativeTxnLog(incoming, outgoing, outgoingXcm) {
         };
     });
 
-    const txnLog = incomingLog.concat(outgoingLog).concat(outgoingXcmLog);
+    const txnLog = incomingLog.concat(incomingDripsLog).concat(outgoingLog).concat(outgoingXcmLog);
     txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
     return txnLog;
 }

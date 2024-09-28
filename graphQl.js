@@ -78,6 +78,18 @@ export async function getNativeTransfers(start, end, address, cid, direction) {
     return await cursor.toArray();
 }
 
+export async function getNativeFaucetDrips(start, end, address) {
+    let query = {
+        section: "encointerFaucet",
+        method: "Dripped",
+        "data.1": address,
+        timestamp: { $gte: start, $lte: end }
+    };
+    const cursor = await db.indexer
+      .collection("events")
+      .find(query, { sort: { timestamp: 1 } });
+    return await cursor.toArray();
+}
 export async function getNativeXcmOutwards(start, end, address) {
     let query = {
         section: "polkadotXcm",
@@ -177,6 +189,7 @@ export async function gatherTransactionData(start, end, address, cid) {
 
 export async function gatherNativeTransactionData(start, end, address) {
     const incoming = await getNativeTransfers(start, end, address, INCOMING);
+    const incomingDrips = await getNativeFaucetDrips(start, end, address);
     const outgoing = await getNativeTransfers(start, end, address, OUTGOING);
     const outgoingXcm = await getNativeXcmOutwards(start, end, address);
 
@@ -186,6 +199,7 @@ export async function gatherNativeTransactionData(start, end, address) {
     const numDistinctClients = new Set(incoming.map((e) => e.signer.Id)).size;
     return [
         incoming,
+        incomingDrips,
         outgoing,
         outgoingXcm,
         sumIncoming,
