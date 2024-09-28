@@ -11,6 +11,7 @@ import {
     getAllTransfers,
 } from "./graphQl.js";
 import { getMonthName, mapRescueCids, parseCid } from "./util.js";
+import BN from "bn.js";
 
 function canBeCached(month, year) {
     return monthIsOver(month, year);
@@ -376,7 +377,7 @@ export function generateTxnLog(incoming, outgoing, issues) {
     return txnLog;
 }
 
-export function generateNativeTxnLog(incoming, outgoing) {
+export function generateNativeTxnLog(incoming, outgoing, outgoingXcm) {
     const incomingLog = incoming.map((e) => ({
         blockNumber: e.blockNumber.toString(),
         timestamp: e.timestamp.toString(),
@@ -389,7 +390,49 @@ export function generateNativeTxnLog(incoming, outgoing) {
         counterParty: e.args.dest.Id,
         amount: -e.args.value,
     }));
-    const txnLog = incomingLog.concat(outgoingLog);
+    const outgoingXcmLog = outgoingXcm.map((e) => {
+        let amount;
+        console.log("xcm: " + JSON.stringify(e));
+        if (e.args.assets.V1) {
+            amount = new BN(e.args.assets.V1[0].fun.Fungible.replace(/,/g, ''));
+        } else if (e.args.assets.V2) {
+            amount = new BN(e.args.assets.V2[0].fun.Fungible.replace(/,/g, ''));
+        } else if (e.args.assets.V3) {
+            amount = new BN(e.args.assets.V3[0].fun.Fungible.replace(/,/g, ''));
+        } else if (e.args.assets.V4) {
+            amount = new BN(e.args.assets.V4[0].fun.Fungible.replace(/,/g, ''));
+        } else {
+            amount = new BN(0);
+        }
+        let dest;
+        if (e.args.dest.V1) {
+            if (e.args.dest.V1.parents === "1") {
+                dest = (e.args.dest.V1.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else if (e.args.dest.V2) {
+            if (e.args.dest.V2.parents === "1") {
+                dest = (e.args.dest.V2.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else if (e.args.dest.V3) {
+            if (e.args.dest.V3.parents === "1") {
+                dest = (e.args.dest.V3.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else if (e.args.dest.V4) {
+            if (e.args.dest.V4.parents === "1") {
+                dest = (e.args.dest.V4.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else {
+            dest = "unknown";
+        }
+        return {
+            blockNumber: e.blockNumber.toString(),
+            timestamp: e.timestamp.toString(),
+            counterParty: dest,
+            amount: -amount,
+        };
+    });
+
+    const txnLog = incomingLog.concat(outgoingLog).concat(outgoingXcmLog);
     txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
     return txnLog;
 }

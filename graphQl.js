@@ -78,6 +78,22 @@ export async function getNativeTransfers(start, end, address, cid, direction) {
     return await cursor.toArray();
 }
 
+export async function getNativeXcmOutwards(start, end, address) {
+    let query = {
+        section: "polkadotXcm",
+        $or: [
+            { method: "limitedTeleportAssets" },
+            { method: "reserveTransferAssets" },
+        ],
+        timestamp: { $gte: start, $lte: end },
+    };
+    query["signer.Id"] = address;
+    const cursor = await db.indexer
+      .collection("extrinsics")
+      .find(query, { sort: { timestamp: 1 } });
+    return await cursor.toArray();
+}
+
 async function getIssues(start, end, address, cid) {
     const cursor = await db.indexer.collection("events").find(
         {
@@ -160,8 +176,9 @@ export async function gatherTransactionData(start, end, address, cid) {
 }
 
 export async function gatherNativeTransactionData(start, end, address) {
-    let incoming = await getNativeTransfers(start, end, address, INCOMING);
+    const incoming = await getNativeTransfers(start, end, address, INCOMING);
     const outgoing = await getNativeTransfers(start, end, address, OUTGOING);
+    const outgoingXcm = await getNativeXcmOutwards(start, end, address);
 
     const sumIncoming = incoming.reduce((acc, cur) => acc + cur.args.value, 0);
     const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.args.value, 0);
@@ -170,6 +187,7 @@ export async function gatherNativeTransactionData(start, end, address) {
     return [
         incoming,
         outgoing,
+        outgoingXcm,
         sumIncoming,
         sumOutgoing,
         numDistinctClients,
