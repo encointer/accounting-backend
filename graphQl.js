@@ -57,7 +57,7 @@ export async function getTransfers(start, end, address, cid, direction) {
     return await cursor.toArray();
 }
 
-export async function getNativeTransfers(start, end, address, cid, direction) {
+export async function getNativeTransfers(start, end, address, direction) {
     let query = {
         section: "balances",
         $or: [
