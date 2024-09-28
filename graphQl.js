@@ -160,8 +160,8 @@ export async function gatherTransactionData(start, end, address, cid) {
 }
 
 export async function gatherNativeTransactionData(start, end, address) {
-    let incoming = await getNativeTransfers(start, end, address, cid, INCOMING);
-    const outgoing = await getNativeTransfers(start, end, address, cid, OUTGOING);
+    let incoming = await getNativeTransfers(start, end, address, INCOMING);
+    const outgoing = await getNativeTransfers(start, end, address, OUTGOING);
 
     const sumIncoming = incoming.reduce((acc, cur) => acc + cur.args.value, 0);
     const sumOutgoing = outgoing.reduce((acc, cur) => acc + cur.args.value, 0);

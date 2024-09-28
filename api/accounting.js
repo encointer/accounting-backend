@@ -442,7 +442,7 @@ accounting.get("/native-transaction-log", async function (req, res, next) {
           account,
         );
 
-        const txnLog = generateNativeTxnLog(incoming, outgoing, issues);
+        const txnLog = generateNativeTxnLog(incoming, outgoing);
 
         res.send(JSON.stringify(txnLog));
     } catch (e) {
