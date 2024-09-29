@@ -81,7 +81,7 @@ export async function gatherAccountingOverview(
                 i
             );
             data.push(accountingData);
-            db.insertIntoAccountDataCache(
+            await db.insertIntoAccountDataCache(
                 account,
                 year,
                 i,
@@ -348,8 +348,7 @@ export async function gatherRewardsData(api, cid) {
             ([key]) => parseInt(key) < currentCindex - 1
         )
     );
-    db.insertIntoRewardsDataCache(cid, dataToBeCached);
-
+    await db.insertIntoRewardsDataCache(cid, dataToBeCached);
     return result;
 }
 
@@ -551,13 +550,15 @@ export async function getMoneyVelocity(
                 cid
             );
         } else {
-            accountingData = await getAccountingData(
-                api,
-                account,
-                cid,
-                year,
-                i
-            );
+            console.error("not implemented yet for current month");
+            accountingData = []
+            // accountingData = await getAccountingData(
+            //     api,
+            //     account,
+            //     cid,
+            //     year,
+            //     i
+            // );
         }
 
         totalTurnoverOrVolume = accountingData.reduce(
@@ -585,7 +586,7 @@ export async function getMoneyVelocity(
 
     const moneyVelocity = (totalTurnoverOrVolume * 12) / averagetotalIssuance;
     if (canBeCached(month, year)) {
-        db.insertIntoGeneralCache(
+        await db.insertIntoGeneralCache(
             "moneyVelocity",
             { cid, year, month },
             { moneyVelocity }
@@ -607,7 +608,7 @@ export async function getVolume(cid, year, month) {
     const transactionVolume = await getTransactionVolume(cid, start, end);
 
     if (canBeCached(month, year)) {
-        db.insertIntoGeneralCache(
+        await db.insertIntoGeneralCache(
             "transactionVolume",
             { cid, year, month },
             { transactionVolume }
@@ -777,7 +778,7 @@ export async function getTransactionActivityLog(
             );
             data.push(transactionActivityData);
 
-            db.insertIntoGeneralCache(
+            await db.insertIntoGeneralCache(
                 "transactionActivity",
                 { cid, year, month: i },
                 transactionActivityData

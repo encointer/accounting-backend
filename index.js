@@ -52,7 +52,7 @@ async function main() {
     const app = express();
     app.set("api", api);
     app.use(function (req, res, next) {
-        console.log("Received new request:", req.url);
+        console.log("Received new request:", req.url, "from:", req.headers.origin);
         var send = res.send;
         res.send = function (body) {
             console.log(
