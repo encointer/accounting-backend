@@ -26,13 +26,18 @@ class Database {
     }
 
     async insertIntoGeneralCache(cacheIdentifier, query, data) {
-        await this.generalCache.replaceOne(
-            { ...query, cacheIdentifier },
-            { ...query, cacheIdentifier, data },
-            {
-                upsert: true,
-            }
-        );
+        try {
+            console.debug('inserting into general cache', cacheIdentifier, query)
+            await this.generalCache.replaceOne(
+              { ...query, cacheIdentifier },
+              { ...query, cacheIdentifier, data },
+              {
+                  upsert: true,
+              }
+            );
+        } catch (e) {
+            console.error(e);
+        }
     }
     async getFromGeneralCache(cacheIdentifier, query) {
         return (
@@ -43,13 +48,18 @@ class Database {
     }
 
     async insertIntoAccountDataCache(account, year, month, cid, data) {
-        await this.accountData.replaceOne(
-            { account, year, month, cid },
-            { account, year, month, cid, data },
-            {
-                upsert: true,
-            }
-        );
+        try {
+            console.debug('inserting into account data cache', account, year, month, cid)
+            await this.accountData.replaceOne(
+              {account, year, month, cid},
+              {account, year, month, cid, data},
+              {
+                  upsert: true,
+              }
+            );
+        } catch (e) {
+            console.error(e);
+        }
     }
     async getFromAccountDataCache(account, year, cid) {
         return (
@@ -66,13 +76,18 @@ class Database {
     }
 
     async insertIntoRewardsDataCache(cid, data) {
-        await this.rewardsData.replaceOne(
+        try {
+            console.debug('inserting into rewards data cache', cid)
+            await this.rewardsData.replaceOne(
             { cid },
             { cid, data },
             {
                 upsert: true,
             }
         );
+        } catch (e) {
+            console.error(e);
+        }
     }
 
     async getFromRewardsDataCache(cid) {

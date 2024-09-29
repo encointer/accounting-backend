@@ -10,7 +10,8 @@ import {
     getReputableRegistrations,
     getAllTransfers,
 } from "./graphQl.js";
-import { getMonthName, mapRescueCids, parseCid } from "./util.js";
+import {getMonthName, mapRescueCids, parseCid, toNativeDecimal} from "./util.js";
+import BN from "bn.js";
 
 function canBeCached(month, year) {
     return monthIsOver(month, year);
@@ -80,7 +81,7 @@ export async function gatherAccountingOverview(
                 i
             );
             data.push(accountingData);
-            db.insertIntoAccountDataCache(
+            await db.insertIntoAccountDataCache(
                 account,
                 year,
                 i,
@@ -347,8 +348,7 @@ export async function gatherRewardsData(api, cid) {
             ([key]) => parseInt(key) < currentCindex - 1
         )
     );
-    db.insertIntoRewardsDataCache(cid, dataToBeCached);
-
+    await db.insertIntoRewardsDataCache(cid, dataToBeCached);
     return result;
 }
 
@@ -372,6 +372,85 @@ export function generateTxnLog(incoming, outgoing, issues) {
         amount: e.data[2],
     }));
     const txnLog = incomingLog.concat(outgoingLog).concat(issuesLog);
+    txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
+    return txnLog;
+}
+
+export function generateNativeTxnLog(incoming, incomingDrips, incomingXcm, outgoing, outgoingXcm) {
+    const incomingLog = incoming.map((e) => ({
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
+        counterParty: e.signer.Id,
+        amount: toNativeDecimal(e.args.value),
+    }));
+    const incomingDripsLog = incomingDrips.map((e) => {
+        return {
+            blockNumber: e.blockNumber.toString(),
+            timestamp: e.timestamp.toString(),
+            counterParty: e.data[0],
+            amount: toNativeDecimal(e.data[2]),
+        }
+    });
+    const incomingXcmLog = incomingXcm.map((e) => {
+        return {
+            blockNumber: e.blockNumber.toString(),
+            timestamp: e.timestamp.toString(),
+            counterParty: "XCMteleporter",
+            amount: toNativeDecimal(e.data.amount),
+        }
+    });
+    const outgoingLog = outgoing.map((e) => ({
+        blockNumber: e.blockNumber.toString(),
+        timestamp: e.timestamp.toString(),
+        counterParty: e.args.dest.Id,
+        amount: -1 * toNativeDecimal(e.args.value),
+    }));
+    const outgoingXcmLog = outgoingXcm.map((e) => {
+        let amount;
+        if (e.args.assets.V1) {
+            amount = toNativeDecimal(e.args.assets.V1[0].fun.Fungible);
+        } else if (e.args.assets.V2) {
+            amount = toNativeDecimal(e.args.assets.V2[0].fun.Fungible);
+        } else if (e.args.assets.V3) {
+            amount = toNativeDecimal(e.args.assets.V3[0].fun.Fungible);
+        } else if (e.args.assets.V4) {
+            amount = toNativeDecimal(e.args.assets.V4[0].fun.Fungible);
+        } else {
+            amount = 0;
+        }
+        let dest;
+        if (e.args.dest.V1) {
+            if (e.args.dest.V1.parents === "1") {
+                dest = (e.args.dest.V1.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else if (e.args.dest.V2) {
+            if (e.args.dest.V2.parents === "1") {
+                dest = (e.args.dest.V2.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else if (e.args.dest.V3) {
+            if (e.args.dest.V3.parents === "1") {
+                dest = (e.args.dest.V3.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else if (e.args.dest.V4) {
+            if (e.args.dest.V4.parents === "1") {
+                dest = (e.args.dest.V4.interior === "Here") ? "Relay" : "Para";
+            } else { dest = "unknown"; }
+        } else {
+            dest = "unknown";
+        }
+        return {
+            blockNumber: e.blockNumber.toString(),
+            timestamp: e.timestamp.toString(),
+            counterParty: dest,
+            amount: -amount,
+        };
+    });
+
+    const txnLog = incomingLog
+      .concat(incomingDripsLog)
+      .concat(incomingXcmLog)
+      .concat(outgoingLog)
+      .concat(outgoingXcmLog);
     txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
     return txnLog;
 }
@@ -471,13 +550,15 @@ export async function getMoneyVelocity(
                 cid
             );
         } else {
-            accountingData = await getAccountingData(
-                api,
-                account,
-                cid,
-                year,
-                i
-            );
+            console.error("not implemented yet for current month");
+            accountingData = []
+            // accountingData = await getAccountingData(
+            //     api,
+            //     account,
+            //     cid,
+            //     year,
+            //     i
+            // );
         }
 
         totalTurnoverOrVolume = accountingData.reduce(
@@ -505,7 +586,7 @@ export async function getMoneyVelocity(
 
     const moneyVelocity = (totalTurnoverOrVolume * 12) / averagetotalIssuance;
     if (canBeCached(month, year)) {
-        db.insertIntoGeneralCache(
+        await db.insertIntoGeneralCache(
             "moneyVelocity",
             { cid, year, month },
             { moneyVelocity }
@@ -527,7 +608,7 @@ export async function getVolume(cid, year, month) {
     const transactionVolume = await getTransactionVolume(cid, start, end);
 
     if (canBeCached(month, year)) {
-        db.insertIntoGeneralCache(
+        await db.insertIntoGeneralCache(
             "transactionVolume",
             { cid, year, month },
             { transactionVolume }
@@ -697,7 +778,7 @@ export async function getTransactionActivityLog(
             );
             data.push(transactionActivityData);
 
-            db.insertIntoGeneralCache(
+            await db.insertIntoGeneralCache(
                 "transactionActivity",
                 { cid, year, month: i },
                 transactionActivityData
