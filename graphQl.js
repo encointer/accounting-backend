@@ -106,6 +106,18 @@ export async function getNativeXcmOutwards(start, end, address) {
     return await cursor.toArray();
 }
 
+export async function getNativeXcmTeleportsIncoming(start, end, address) {
+    let query = {
+        section: "balances",
+        method: "Minted",
+        timestamp: { $gte: start, $lte: end },
+    };
+    query["data.who"] = address;
+    const cursor = await db.indexer
+      .collection("events")
+      .find(query, { sort: { timestamp: 1 } });
+    return await cursor.toArray();
+}
 async function getIssues(start, end, address, cid) {
     const cursor = await db.indexer.collection("events").find(
         {
@@ -190,6 +202,7 @@ export async function gatherTransactionData(start, end, address, cid) {
 export async function gatherNativeTransactionData(start, end, address) {
     const incoming = await getNativeTransfers(start, end, address, INCOMING);
     const incomingDrips = await getNativeFaucetDrips(start, end, address);
+    const incomingXcm = await getNativeXcmTeleportsIncoming(start, end, address);
     const outgoing = await getNativeTransfers(start, end, address, OUTGOING);
     const outgoingXcm = await getNativeXcmOutwards(start, end, address);
 
@@ -200,6 +213,7 @@ export async function gatherNativeTransactionData(start, end, address) {
     return [
         incoming,
         incomingDrips,
+        incomingXcm,
         outgoing,
         outgoingXcm,
         sumIncoming,

@@ -377,7 +377,7 @@ export function generateTxnLog(incoming, outgoing, issues) {
     return txnLog;
 }
 
-export function generateNativeTxnLog(incoming, incomingDrips, outgoing, outgoingXcm) {
+export function generateNativeTxnLog(incoming, incomingDrips, incomingXcm, outgoing, outgoingXcm) {
     const incomingLog = incoming.map((e) => ({
         blockNumber: e.blockNumber.toString(),
         timestamp: e.timestamp.toString(),
@@ -390,6 +390,14 @@ export function generateNativeTxnLog(incoming, incomingDrips, outgoing, outgoing
             timestamp: e.timestamp.toString(),
             counterParty: e.data[0],
             amount: toNativeDecimal(e.data[2]),
+        }
+    });
+    const incomingXcmLog = incomingXcm.map((e) => {
+        return {
+            blockNumber: e.blockNumber.toString(),
+            timestamp: e.timestamp.toString(),
+            counterParty: "XCMteleporter",
+            amount: toNativeDecimal(e.data.amount),
         }
     });
     const outgoingLog = outgoing.map((e) => ({
@@ -439,7 +447,11 @@ export function generateNativeTxnLog(incoming, incomingDrips, outgoing, outgoing
         };
     });
 
-    const txnLog = incomingLog.concat(incomingDripsLog).concat(outgoingLog).concat(outgoingXcmLog);
+    const txnLog = incomingLog
+      .concat(incomingDripsLog)
+      .concat(incomingXcmLog)
+      .concat(outgoingLog)
+      .concat(outgoingXcmLog);
     txnLog.sort((a, b) => parseInt(a.timestamp) - parseInt(b.timestamp));
     return txnLog;
 }

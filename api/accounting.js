@@ -436,13 +436,13 @@ accounting.get("/native-transaction-log", async function (req, res, next) {
         const start = parseInt(query.start);
         const end = parseInt(query.end);
 
-        const [incoming, incomingDrips, outgoing, outgoingXcm] = await gatherNativeTransactionData(
+        const [incoming, incomingDrips, incomingXcm, outgoing, outgoingXcm] = await gatherNativeTransactionData(
           start,
           end,
           account,
         );
 
-        const txnLog = generateNativeTxnLog(incoming, incomingDrips, outgoing, outgoingXcm);
+        const txnLog = generateNativeTxnLog(incoming, incomingDrips, incomingXcm, outgoing, outgoingXcm);
 
         res.send(JSON.stringify(txnLog));
     } catch (e) {
