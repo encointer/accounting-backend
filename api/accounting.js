@@ -272,24 +272,31 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
 
         const data = [];
 
-        for (const user of users) {
+        const userPromises = users.map(async (user) => {
             try {
-                data.push({
-                    name: user.name,
-                    data: await gatherAccountingOverview(
-                        api,
-                        user.address,
-                        cid,
-                        year,
-                        month,
-                        includeCurrentMonth
-                    ),
-                });
+            return {
+                name: user.name,
+                data: await gatherAccountingOverview(
+                api,
+                user.address,
+                cid,
+                year,
+                month,
+                includeCurrentMonth
+                ),
+            };
             } catch (err) {
-                console.log(err);
-                continue;
+            console.log(err);
+            return null;
             }
-        }
+        });
+
+        const results = await Promise.all(userPromises);
+        results.forEach((result) => {
+            if (result) {
+            data.push(result);
+            }
+        });
 
         res.send(
             JSON.stringify({
