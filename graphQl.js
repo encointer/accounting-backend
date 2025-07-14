@@ -14,7 +14,12 @@ export async function getClosestBlock(timestamp) {
     );
 }
 
-export async function getAllTransfers(start, end, cid) {
+export async function getAllTransfers(
+    start,
+    end,
+    cid,
+    excludedNonCirculating = false
+) {
     const cursor = await db.indexer.collection("events").find(
         {
             section: "encointerBalances",
@@ -24,21 +29,35 @@ export async function getAllTransfers(start, end, cid) {
         },
         { sort: { timestamp: 1 } }
     );
+    if (excludedNonCirculating) {
+        const nonCirculatingAddresses = await db.getNonCirculatingAddresses(
+            cid
+        );
+        // Filter out events where sender or recipient is a non-circulating address
+        const nonCircSet = new Set(nonCirculatingAddresses);
+        const filtered = [];
+        for await (const doc of cursor) {
+            if (!nonCircSet.has(doc.data[1]) && !nonCircSet.has(doc.data[2])) {
+                filtered.push(doc);
+            }
+        }
+        return filtered;
+    }
     return await cursor.toArray();
 }
 
 export async function getAllNativeTransfers(start, end) {
     const cursor = await db.indexer.collection("extrinsics").find(
-      {
-          section: "balances",
-          $or: [
-              { method: "transferKeepAlive" },
-              { method: "transferAllowDeath" },
-              { method: "transfer" }
-          ],
-          timestamp: { $gte: start, $lte: end },
-      },
-      { sort: { timestamp: 1 } }
+        {
+            section: "balances",
+            $or: [
+                { method: "transferKeepAlive" },
+                { method: "transferAllowDeath" },
+                { method: "transfer" },
+            ],
+            timestamp: { $gte: start, $lte: end },
+        },
+        { sort: { timestamp: 1 } }
     );
     return await cursor.toArray();
 }
@@ -63,7 +82,7 @@ export async function getNativeTransfers(start, end, address, direction) {
         $or: [
             { method: "transferKeepAlive" },
             { method: "transferAllowDeath" },
-            { method: "transfer" }
+            { method: "transfer" },
         ],
         timestamp: { $gte: start, $lte: end },
     };
@@ -73,8 +92,8 @@ export async function getNativeTransfers(start, end, address, direction) {
         query["signer.Id"] = address;
     }
     const cursor = await db.indexer
-      .collection("extrinsics")
-      .find(query, { sort: { timestamp: 1 } });
+        .collection("extrinsics")
+        .find(query, { sort: { timestamp: 1 } });
     return await cursor.toArray();
 }
 
@@ -83,11 +102,11 @@ export async function getNativeFaucetDrips(start, end, address) {
         section: "encointerFaucet",
         method: "Dripped",
         "data.1": address,
-        timestamp: { $gte: start, $lte: end }
+        timestamp: { $gte: start, $lte: end },
     };
     const cursor = await db.indexer
-      .collection("events")
-      .find(query, { sort: { timestamp: 1 } });
+        .collection("events")
+        .find(query, { sort: { timestamp: 1 } });
     return await cursor.toArray();
 }
 export async function getNativeXcmOutwards(start, end, address) {
@@ -101,8 +120,8 @@ export async function getNativeXcmOutwards(start, end, address) {
     };
     query["signer.Id"] = address;
     const cursor = await db.indexer
-      .collection("extrinsics")
-      .find(query, { sort: { timestamp: 1 } });
+        .collection("extrinsics")
+        .find(query, { sort: { timestamp: 1 } });
     return await cursor.toArray();
 }
 
@@ -114,8 +133,8 @@ export async function getNativeXcmTeleportsIncoming(start, end, address) {
     };
     query["data.who"] = address;
     const cursor = await db.indexer
-      .collection("events")
-      .find(query, { sort: { timestamp: 1 } });
+        .collection("events")
+        .find(query, { sort: { timestamp: 1 } });
     return await cursor.toArray();
 }
 async function getIssues(start, end, address, cid) {
@@ -202,7 +221,11 @@ export async function gatherTransactionData(start, end, address, cid) {
 export async function gatherNativeTransactionData(start, end, address) {
     const incoming = await getNativeTransfers(start, end, address, INCOMING);
     const incomingDrips = await getNativeFaucetDrips(start, end, address);
-    const incomingXcm = await getNativeXcmTeleportsIncoming(start, end, address);
+    const incomingXcm = await getNativeXcmTeleportsIncoming(
+        start,
+        end,
+        address
+    );
     const outgoing = await getNativeTransfers(start, end, address, OUTGOING);
     const outgoingXcm = await getNativeXcmOutwards(start, end, address);
 
@@ -229,7 +252,7 @@ export async function getBlockNumberByTimestamp(timestamp) {
 }
 
 export async function getTransactionVolume(cid, start, end) {
-    return (await getAllTransfers(start, end, cid)).reduce(
+    return (await getAllTransfers(start, end, cid, true)).reduce(
         (acc, cur) => acc + cur.data[3],
         0
     );
