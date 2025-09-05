@@ -8,11 +8,13 @@ class Database {
             ssl: true,
             sslValidate: true,
         });
-        this.dataCache = this.dbClient.db("encointer-kusama-accounting-backend-cache");
+        this.dataCache = this.dbClient.db(
+            "encointer-kusama-accounting-backend-cache"
+        );
         this.indexer = this.dbClient.db("encointer-kusama-pindex");
-        this.blocks = this.indexer.collection("blocks")
-        this.extrinsics = this.indexer.collection("extrinsics")
-        this.events = this.indexer.collection("events")
+        this.blocks = this.indexer.collection("blocks");
+        this.extrinsics = this.indexer.collection("extrinsics");
+        this.events = this.indexer.collection("events");
 
         this.accountData = this.dataCache.collection("account_data");
         this.rewardsData = this.dataCache.collection("rewards_data");
@@ -27,13 +29,17 @@ class Database {
 
     async insertIntoGeneralCache(cacheIdentifier, query, data) {
         try {
-            console.debug('inserting into general cache', cacheIdentifier, query)
+            console.debug(
+                "inserting into general cache",
+                cacheIdentifier,
+                query
+            );
             await this.generalCache.replaceOne(
-              { ...query, cacheIdentifier },
-              { ...query, cacheIdentifier, data },
-              {
-                  upsert: true,
-              }
+                { ...query, cacheIdentifier },
+                { ...query, cacheIdentifier, data },
+                {
+                    upsert: true,
+                }
             );
         } catch (e) {
             console.error(e);
@@ -49,13 +55,19 @@ class Database {
 
     async insertIntoAccountDataCache(account, year, month, cid, data) {
         try {
-            console.debug('inserting into account data cache', account, year, month, cid)
+            console.debug(
+                "inserting into account data cache",
+                account,
+                year,
+                month,
+                cid
+            );
             await this.accountData.replaceOne(
-              {account, year, month, cid},
-              {account, year, month, cid, data},
-              {
-                  upsert: true,
-              }
+                { account, year, month, cid },
+                { account, year, month, cid, data },
+                {
+                    upsert: true,
+                }
             );
         } catch (e) {
             console.error(e);
@@ -70,21 +82,21 @@ class Database {
     }
 
     async getFromAccountDataCacheByMonth(month, year, cid) {
-        return (
-            await (await this.accountData.find({ month, year, cid })).toArray()
-        ).map((e) => e.data);
+        return await (
+            await this.accountData.find({ month, year, cid })
+        ).toArray();
     }
 
     async insertIntoRewardsDataCache(cid, data) {
         try {
-            console.debug('inserting into rewards data cache', cid)
+            console.debug("inserting into rewards data cache", cid);
             await this.rewardsData.replaceOne(
-            { cid },
-            { cid, data },
-            {
-                upsert: true,
-            }
-        );
+                { cid },
+                { cid, data },
+                {
+                    upsert: true,
+                }
+            );
         } catch (e) {
             console.error(e);
         }
@@ -101,7 +113,13 @@ class Database {
         return null;
     }
 
-    async upsertUser(address, password, name, isAdmin = false, isReadonlyAdmin = false) {
+    async upsertUser(
+        address,
+        password,
+        name,
+        isAdmin = false,
+        isReadonlyAdmin = false
+    ) {
         await this.users.replaceOne(
             { address },
             {
@@ -164,7 +182,7 @@ class Database {
     async getAllUsers() {
         return this.users
             .find(
-                {isAdmin: false},
+                { isAdmin: false },
                 { projection: { address: 1, name: 1, isAdmin: 1, _id: 0 } }
             )
             .toArray();
@@ -202,6 +220,18 @@ class Database {
                 .toArray()
         ).map((e) => e.address);
     }
+
+    async getNonCirculatingAddresses(cid) {
+        return (
+            await this.knows_addresses
+                .find(
+                    { cid, type: "nonCirculating" },
+                    { projection: { address: 1 } }
+                )
+                .toArray()
+        ).map((e) => e.address);
+    }
+
     async getAcceptancePointAddresses(cid) {
         return (
             await this.communities.findOne(
