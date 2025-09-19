@@ -558,6 +558,8 @@ export async function getMoneyVelocity(
 
     let totalTurnoverOrVolume = 0;
 
+    const nonCirculatingAddresses = await db.getNonCirculatingAddresses(cid);
+
     if (useTotalVolume) {
         totalTurnoverOrVolume = await getVolume(cid, year, month);
     } else {
@@ -581,9 +583,6 @@ export async function getMoneyVelocity(
         }
 
         // filter cirulating addresses
-        const nonCirculatingAddresses = await db.getNonCirculatingAddresses(
-            cid
-        );
         accountingData = accountingData.filter(
             (e) => !nonCirculatingAddresses.includes(e.account)
         );
@@ -596,22 +595,48 @@ export async function getMoneyVelocity(
 
     const firstBlockOfMonth = await getFirstBlockOfMonth(year, month);
     const lastBlockOfMonth = await getLastBlockOfMonth(api, year, month);
-    const totalIssuanceStart = await getTotalIssuance(
+    let totalIssuanceStart = await getTotalIssuance(
         api,
         cid,
         firstBlockOfMonth
     );
-    const totalIssuanceEnd = await getTotalIssuance(api, cid, lastBlockOfMonth);
+    let totalIssuanceEnd = await getTotalIssuance(api, cid, lastBlockOfMonth);
 
-    const averagetotalIssuance = (totalIssuanceStart + totalIssuanceEnd) * 0.5;
+
+    let excludedTotalStart = 0;
+    let excludedTotalEnd = 0;
+
+    // Compute block hashes once
+    const firstBlockHash = await api.rpc.chain.getBlockHash(firstBlockOfMonth);
+    const lastBlockHash = await api.rpc.chain.getBlockHash(lastBlockOfMonth);
+
+    let parsedCid = parseCid(cid);
+    // Parallelize balance fetching for excluded addresses
+    const balanceStartPromises = nonCirculatingAddresses.map(address =>
+        getBalance(api, parsedCid, address, firstBlockHash)
+    );
+    const balanceEndPromises = nonCirculatingAddresses.map(address =>
+        getBalance(api, parsedCid, address, lastBlockHash)
+    );
+
+    const balanceStarts = await Promise.all(balanceStartPromises);
+    const balanceEnds = await Promise.all(balanceEndPromises);
+
+    excludedTotalStart = balanceStarts.reduce((sum, b) => sum + b.principal, 0);
+    excludedTotalEnd = balanceEnds.reduce((sum, b) => sum + b.principal, 0);
+
+    totalIssuanceStart = totalIssuanceStart - excludedTotalStart;
+    totalIssuanceEnd = totalIssuanceEnd - excludedTotalEnd;
+
+    const averageTotalIssuance = (totalIssuanceStart + totalIssuanceEnd) * 0.5;
 
     if (!monthOver) {
         const monthProgress = getMonthProgress();
         if (monthProgress === 0) return 0;
         totalTurnoverOrVolume /= monthProgress;
     }
-    
-    const moneyVelocity = (totalTurnoverOrVolume * 12) / averagetotalIssuance;
+
+    const moneyVelocity = (totalTurnoverOrVolume * 12) / averageTotalIssuance;
     if (canBeCached(month, year)) {
         await db.insertIntoGeneralCache(
             "moneyVelocity",
