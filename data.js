@@ -602,31 +602,44 @@ export async function getMoneyVelocity(
     );
     let totalIssuanceEnd = await getTotalIssuance(api, cid, lastBlockOfMonth);
 
+    if (!useTotalVolume) {
+        let excludedTotalStart = 0;
+        let excludedTotalEnd = 0;
 
-    let excludedTotalStart = 0;
-    let excludedTotalEnd = 0;
+        // Compute block hashes once
+        const firstBlockHash = await api.rpc.chain.getBlockHash(
+            firstBlockOfMonth
+        );
+        const lastBlockHash = await api.rpc.chain.getBlockHash(
+            lastBlockOfMonth
+        );
 
-    // Compute block hashes once
-    const firstBlockHash = await api.rpc.chain.getBlockHash(firstBlockOfMonth);
-    const lastBlockHash = await api.rpc.chain.getBlockHash(lastBlockOfMonth);
+        let parsedCid = parseCid(cid);
+        // Parallelize balance fetching for excluded addresses
+        const balanceStartPromises = nonCirculatingAddresses.map((address) =>
+            getBalance(api, parsedCid, address, firstBlockHash)
+        );
+        const balanceEndPromises = nonCirculatingAddresses.map((address) =>
+            getBalance(api, parsedCid, address, lastBlockHash)
+        );
 
-    let parsedCid = parseCid(cid);
-    // Parallelize balance fetching for excluded addresses
-    const balanceStartPromises = nonCirculatingAddresses.map(address =>
-        getBalance(api, parsedCid, address, firstBlockHash)
-    );
-    const balanceEndPromises = nonCirculatingAddresses.map(address =>
-        getBalance(api, parsedCid, address, lastBlockHash)
-    );
+        const balanceStarts = await Promise.all(balanceStartPromises);
+        const balanceEnds = await Promise.all(balanceEndPromises);
 
-    const balanceStarts = await Promise.all(balanceStartPromises);
-    const balanceEnds = await Promise.all(balanceEndPromises);
+        excludedTotalStart = balanceStarts.reduce(
+            (sum, b) => sum + b.principal,
+            0
+        );
+        excludedTotalEnd = balanceEnds.reduce((sum, b) => sum + b.principal, 0);
 
-    excludedTotalStart = balanceStarts.reduce((sum, b) => sum + b.principal, 0);
-    excludedTotalEnd = balanceEnds.reduce((sum, b) => sum + b.principal, 0);
-
-    totalIssuanceStart = totalIssuanceStart - excludedTotalStart;
-    totalIssuanceEnd = totalIssuanceEnd - excludedTotalEnd;
+        totalIssuanceStart = totalIssuanceStart - excludedTotalStart;
+        totalIssuanceEnd = totalIssuanceEnd - excludedTotalEnd;
+        console.log(
+            "excluded non circulating",
+            excludedTotalStart,
+            excludedTotalEnd
+        );
+    }
 
     const averageTotalIssuance = (totalIssuanceStart + totalIssuanceEnd) * 0.5;
 
