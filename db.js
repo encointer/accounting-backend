@@ -12,6 +12,7 @@ class Database {
             "encointer-kusama-accounting-backend-cache"
         );
         this.indexer = this.dbClient.db("encointer-kusama-pindex");
+        this.indexerAssetHub = this.dbClient.db("asset-hub-kusama");
         this.blocks = this.indexer.collection("blocks");
         this.extrinsics = this.indexer.collection("extrinsics");
         this.events = this.indexer.collection("events");
@@ -239,6 +240,67 @@ class Database {
                 { projection: { accounts: 1 } }
             )
         ).accounts;
+    }
+
+    async getTreasurySpendsByUser(account, start, end) {
+        return this.events.find(
+            {
+                section: "encointerTreasuries",
+                method: "SpentAsset",
+                "data.beneficiary": account,
+                timestamp: { $gte: start, $lte: end },
+            },
+            { sort: { timestamp: 1 } }
+        );
+    }
+
+    async getTreasurySpendsByTreasury(treasury, start, end) {
+        return this.events
+            .find(
+                {
+                    section: "encointerTreasuries",
+                    method: "SpentAsset",
+                    "data.treasury": treasury,
+                    timestamp: { $gte: start, $lte: end },
+                },
+                { sort: { timestamp: 1 } }
+            )
+            .toArray();
+    }
+
+    async getBalancesBurnedByUser(account, start, end) {
+        return this.events.find(
+            {
+                section: "encointerBalances",
+                method: "Burned",
+                "data.1": account,
+                timestamp: { $gte: start, $lte: end },
+            },
+            { sort: { timestamp: 1 } }
+        );
+    }
+
+    async treasurySpendCorrespondingBurn(treasurySpendEvent) {
+        const correspondingBurn = await this.events.findOne({
+            section: "encointerBalances",
+            method: "Burned",
+            "data.1": treasurySpendEvent.data.beneficiary,
+            blockNumber: treasurySpendEvent.blockNumber,
+        });
+        return correspondingBurn;
+    }
+
+    async incomingTreasuryTxns(treasury, start, end) {
+        const incoming = await this.indexerAssetHub
+            .collection("events")
+            .find({
+                section: "foreignAssets",
+                method: "Transferred",
+                "data.to": treasury,
+                timestamp: { $gte: start, $lte: end },
+            })
+            .toArray();
+        return incoming;
     }
 }
 
