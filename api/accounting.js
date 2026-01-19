@@ -26,7 +26,7 @@ import {
     getAssetNameAndDecimals,
     getTreasuryByCid,
     getTreasuryName,
-} from "../../treasuryConfig.js";
+} from "../treasuryConfig.js";
 
 const accounting = express.Router();
 
