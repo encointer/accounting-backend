@@ -4,6 +4,16 @@ const treasuryMap = {
         cid: "u0qj944rhWE",
         kahAccount: "DgdA9qwXxBAtdy9veCR4LZpcbYuMgCSL9XpV7gbELFncV2t",
     },
+    E9KVuDLEtBBWSqhCiKn31VPBBLe33CbYJTrnWAbjszwskWH: {
+        name: "Nyota Treasury",
+        cid: "kygch5kVGq7",
+        kahAccount: "G8yWL9B48XnbwC5aYpotqUk7ZTcpP7SGQcykoo7TVQTkhwJ"
+    },
+    E2mZ1u2xepTF8nuEQVkrimPVwqtqq1joC56cUwYPftXAEQL: {
+        name: "PayNuQ Treasury",
+        cid: "s1vrqQL2SD",
+        kahAccount: "CqCAXF5M51M7xttMuK47TmyuSos8iusFm524ZzaAZnNiner",
+    }
 };
 
 const assedIdMap = {
