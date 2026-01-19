@@ -382,7 +382,8 @@ export function generateTxnLog(incoming, outgoing, issues, spends) {
         timestamp: e.timestamp.toString(),
         counterParty: "TREASURY",
         amount: e.amount,
-        assetName: e.assetName,
+        foreignAssetName: e.foreignAssetName,
+        foreignAssetAmount: e.foreignAssetAmount,
         type: e.name,
         treasuryName: e.treasuryName,
     }));

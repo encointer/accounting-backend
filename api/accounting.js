@@ -420,10 +420,11 @@ accounting.get("/transaction-log", async function (req, res, next) {
                 Math.pow(10, decimals);
 
             spend.name = burn ? "Swap" : "Spend";
-            spend.assetName = name;
+            spend.foreignAssetName = name;
+            spend.foreignAssetAmount = amount;
             spend.decimals = decimals;
             spend.treasuryName = treasuryName;
-            spend.amount = amount;
+            spend.amount = burn ? -burn.data[2] : 0;
         }
 
         const txnLog = generateTxnLog(incoming, outgoing, issues, spends);
