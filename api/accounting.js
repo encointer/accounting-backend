@@ -11,7 +11,8 @@ import {
     getCumulativeRewardsData,
     getFrequencyOfAttendance,
     getTransactionActivityLog,
-    getSankeyReport, generateNativeTxnLog,
+    getSankeyReport,
+    generateNativeTxnLog,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
 import {
@@ -21,6 +22,11 @@ import {
 } from "../graphQl.js";
 import db from "../db.js";
 import { parseCid, reduceObjects } from "../util.js";
+import {
+    getAssetNameAndDecimals,
+    getTreasuryByCid,
+    getTreasuryName,
+} from "../treasuryConfig.js";
 
 const accounting = express.Router();
 
@@ -274,27 +280,27 @@ accounting.get("/all-accounts-data", async function (req, res, next) {
 
         const userPromises = users.map(async (user) => {
             try {
-            return {
-                name: user.name,
-                data: await gatherAccountingOverview(
-                api,
-                user.address,
-                cid,
-                year,
-                month,
-                includeCurrentMonth
-                ),
-            };
+                return {
+                    name: user.name,
+                    data: await gatherAccountingOverview(
+                        api,
+                        user.address,
+                        cid,
+                        year,
+                        month,
+                        includeCurrentMonth
+                    ),
+                };
             } catch (err) {
-            console.log(err);
-            return null;
+                console.log(err);
+                return null;
             }
         });
 
         const results = await Promise.all(userPromises);
         results.forEach((result) => {
             if (result) {
-            data.push(result);
+                data.push(result);
             }
         });
 
@@ -396,9 +402,155 @@ accounting.get("/transaction-log", async function (req, res, next) {
             cid
         );
 
-        const txnLog = generateTxnLog(incoming, outgoing, issues);
+        const [spends, burns, transferred] = await Promise.all([
+            db
+                .getTreasurySpendsByUser(account, start, end)
+                .then((c) => c.toArray()),
+            db
+                .getBalancesBurnedByUser(account, start, end)
+                .then((c) => c.toArray()),
+            db
+                .getBalancesTransferredByUser(account, start, end)
+                .then((c) => c.toArray()),
+        ]);
+
+        for (const spend of spends) {
+            const burn = burns.find((b) => b.blockNumber === spend.blockNumber);
+            const transferToTreasury = transferred.find(
+                (t) =>
+                    t.blockNumber === spend.blockNumber &&
+                    t.data[2] === spend.data.treasury
+            );
+
+            let amount = 0;
+            if (burn) {
+                amount = -burn.data[2];
+            }
+
+            if (transferToTreasury) {
+                amount = -transferToTreasury.data[3];
+            }
+
+            const { name, decimals } = getAssetNameAndDecimals(
+                spend.data.assetId
+            );
+            const treasuryName = getTreasuryName(spend.data.treasury);
+            const assetAmount =
+                parseInt(spend.data.amount.replace(/,/g, "")) /
+                Math.pow(10, decimals);
+
+            spend.name = burn || transferToTreasury ? "Swap" : "Spend";
+            spend.foreignAssetName = name;
+            spend.foreignAssetAmount = assetAmount;
+            spend.decimals = decimals;
+            spend.treasuryName = treasuryName;
+            spend.amount = burn ? -burn.data[2] : 0;
+        }
+
+        const txnLog = generateTxnLog(incoming, outgoing, issues, spends);
 
         res.send(JSON.stringify(txnLog));
+    } catch (e) {
+        next(e);
+    }
+});
+
+/**
+ * @swagger
+ * /v1/accounting/community-treasury-log:
+ *   get:
+ *     description: Retrieve transaction log for a specified account, in cid, between start and end
+ *     parameters:
+ *       - in: query
+ *         name: start
+ *         required: true
+ *         description: Timestamp
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: end
+ *         required: true
+ *         description: Timestamp
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: cid
+ *         required: false
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ *          '403':
+ *              description: Permission denied
+ */
+accounting.get("/community-treasury-log", async function (req, res, next) {
+    try {
+        const query = req.query;
+        const cid = query.cid;
+        const start = parseInt(query.start);
+        const end = parseInt(query.end);
+
+        const treasury = getTreasuryByCid(cid);
+        let [spends, incomingTransactions] = await Promise.all([
+            db.getTreasurySpendsByTreasury(treasury.address, start, end),
+            db.incomingTreasuryTxns(treasury.address, treasury.kahAccount, start, end),
+        ]);
+
+        spends = await Promise.all(
+            spends.map(async (spend) => {
+                const [burn, sendToTreasury] = await Promise.all([
+                    db.treasurySpendCorrespondingBurn(spend),
+                    db.treasurySpendCorrespondingTransferToTreasury(spend),
+                ]);
+                const { name, decimals } = getAssetNameAndDecimals(
+                    spend.data.assetId
+                );
+                const treasuryName = getTreasuryName(spend.data.treasury);
+                const amount =
+                    parseInt(spend.data.amount.replace(/,/g, "")) /
+                    Math.pow(10, decimals);
+
+                return {
+                    type: burn || sendToTreasury ? "Swap" : "Spend",
+                    assetName: name,
+                    decimals: decimals,
+                    treasuryName: treasuryName,
+                    amount: amount,
+                    beneficiary: spend.data.beneficiary,
+                    communityCurrencyAmountSwapped: burn ? burn.data[2] : null,
+                    timestamp: spend.timestamp,
+                };
+            })
+        );
+
+        incomingTransactions = incomingTransactions.map((txn) => {
+            const nameAndDecimals = getAssetNameAndDecimals(txn.data.assetId);
+            if (!nameAndDecimals) {
+                return null;
+            }
+            const { name, decimals } = nameAndDecimals;
+            return {
+                type: "TopUp",
+                assetName: name,
+                decimals: decimals,
+                amount:
+                    parseInt(txn.data.amount.replace(/,/g, "")) /
+                    Math.pow(10, decimals),
+                from: txn.data.from,
+                timestamp: txn.timestamp,
+            };
+        });
+
+        incomingTransactions = incomingTransactions.filter((e) => e !== null);
+
+        let log = incomingTransactions.concat(spends);
+        log = log.sort((a, b) => a.timestamp - b.timestamp);
+
+        res.send(JSON.stringify(log));
     } catch (e) {
         next(e);
     }
@@ -443,13 +595,16 @@ accounting.get("/native-transaction-log", async function (req, res, next) {
         const start = parseInt(query.start);
         const end = parseInt(query.end);
 
-        const [incoming, incomingDrips, incomingXcm, outgoing, outgoingXcm] = await gatherNativeTransactionData(
-          start,
-          end,
-          account,
-        );
+        const [incoming, incomingDrips, incomingXcm, outgoing, outgoingXcm] =
+            await gatherNativeTransactionData(start, end, account);
 
-        const txnLog = generateNativeTxnLog(incoming, incomingDrips, incomingXcm, outgoing, outgoingXcm);
+        const txnLog = generateNativeTxnLog(
+            incoming,
+            incomingDrips,
+            incomingXcm,
+            outgoing,
+            outgoingXcm
+        );
 
         res.send(JSON.stringify(txnLog));
     } catch (e) {
@@ -491,7 +646,7 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
         // }
         const api = req.app.get("api");
         const cid = req.query.cid;
-        const useTotalVolume = req.query.useTotalVolume === 'true';
+        const useTotalVolume = req.query.useTotalVolume === "true";
 
         const community = await db.getCommunity(cid);
         const communityName = community.name;
