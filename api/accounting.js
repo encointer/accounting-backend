@@ -402,26 +402,46 @@ accounting.get("/transaction-log", async function (req, res, next) {
             cid
         );
 
-        const spends = await (
-            await db.getTreasurySpendsByUser(account, start, end)
-        ).toArray();
-        const burns = await (
-            await db.getBalancesBurnedByUser(account, start, end)
-        ).toArray();
+        const [spends, burns, transferred] = await Promise.all([
+            db
+                .getTreasurySpendsByUser(account, start, end)
+                .then((c) => c.toArray()),
+            db
+                .getBalancesBurnedByUser(account, start, end)
+                .then((c) => c.toArray()),
+            db
+                .getBalancesTransferredByUser(account, start, end)
+                .then((c) => c.toArray()),
+        ]);
 
         for (const spend of spends) {
             const burn = burns.find((b) => b.blockNumber === spend.blockNumber);
+            const transferToTreasury = transferred.find(
+                (t) =>
+                    t.blockNumber === spend.blockNumber &&
+                    t.data[2] === spend.data.treasury
+            );
+
+            let amount = 0;
+            if (burn) {
+                amount = -burn.data[2];
+            }
+
+            if (transferToTreasury) {
+                amount = -transferToTreasury.data[3];
+            }
+
             const { name, decimals } = getAssetNameAndDecimals(
                 spend.data.assetId
             );
             const treasuryName = getTreasuryName(spend.data.treasury);
-            const amount =
+            const assetAmount =
                 parseInt(spend.data.amount.replace(/,/g, "")) /
                 Math.pow(10, decimals);
 
-            spend.name = burn ? "Swap" : "Spend";
+            spend.name = burn || transferToTreasury ? "Swap" : "Spend";
             spend.foreignAssetName = name;
-            spend.foreignAssetAmount = amount;
+            spend.foreignAssetAmount = assetAmount;
             spend.decimals = decimals;
             spend.treasuryName = treasuryName;
             spend.amount = burn ? -burn.data[2] : 0;
@@ -482,7 +502,10 @@ accounting.get("/community-treasury-log", async function (req, res, next) {
 
         spends = await Promise.all(
             spends.map(async (spend) => {
-                const burn = await db.treasurySpendCorrespondingBurn(spend);
+                const [burn, sendToTreasury] = await Promise.all([
+                    db.treasurySpendCorrespondingBurn(spend),
+                    db.treasurySpendCorrespondingTransferToTreasury(spend),
+                ]);
                 const { name, decimals } = getAssetNameAndDecimals(
                     spend.data.assetId
                 );
@@ -492,7 +515,7 @@ accounting.get("/community-treasury-log", async function (req, res, next) {
                     Math.pow(10, decimals);
 
                 return {
-                    type: burn ? "Swap" : "Spend",
+                    type: burn || sendToTreasury ? "Swap" : "Spend",
                     assetName: name,
                     decimals: decimals,
                     treasuryName: treasuryName,

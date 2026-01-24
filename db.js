@@ -259,7 +259,7 @@ class Database {
             .find(
                 {
                     section: "encointerTreasuries",
-                    method: "SpentAsset",
+                    method: { $in: ["SpentAsset", "SpentNative"] },
                     "data.treasury": treasury,
                     timestamp: { $gte: start, $lte: end },
                 },
@@ -280,6 +280,18 @@ class Database {
         );
     }
 
+    async getBalancesTransferredByUser(account, start, end) {
+        return this.events.find(
+            {
+                section: "encointerBalances",
+                method: "Transferred",
+                "data.1": account,
+                timestamp: { $gte: start, $lte: end },
+            },
+            { sort: { timestamp: 1 } }
+        );
+    }
+
     async treasurySpendCorrespondingBurn(treasurySpendEvent) {
         const correspondingBurn = await this.events.findOne({
             section: "encointerBalances",
@@ -290,17 +302,41 @@ class Database {
         return correspondingBurn;
     }
 
+    async treasurySpendCorrespondingTransferToTreasury(treasurySpendEvent) {
+        const correspondingBurn = await this.events.findOne({
+            section: "encointerBalances",
+            method: "Transferred",
+            "data.2": treasurySpendEvent.data.treasury,
+            blockNumber: treasurySpendEvent.blockNumber,
+        });
+        return correspondingBurn;
+    }
+
     async incomingTreasuryTxns(treasury, start, end) {
-        const incoming = await this.indexerAssetHub
-            .collection("events")
-            .find({
-                section: "foreignAssets",
-                method: "Transferred",
-                "data.to": treasury,
-                timestamp: { $gte: start, $lte: end },
-            })
-            .toArray();
-        return incoming;
+        const [incoming, incomingNative] = await Promise.all([
+            this.indexerAssetHub
+                .collection("events")
+                .find({
+                    section: "foreignAssets",
+                    method: "Transferred",
+                    "data.to": treasury,
+                    timestamp: { $gte: start, $lte: end },
+                })
+                .toArray(),
+            this.indexerAssetHub
+                .collection("events")
+                .find({
+                    section: "balances",
+                    method: "Transfer",
+                    "data.to": treasury,
+                    timestamp: { $gte: start, $lte: end },
+                })
+                .toArray(),
+        ]);
+
+        let result = incoming.concat(incomingNative);
+        result.sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1));
+        return result;
     }
 }
 
