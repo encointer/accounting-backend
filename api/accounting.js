@@ -520,8 +520,8 @@ accounting.get("/community-treasury-log", async function (req, res, next) {
                     decimals: decimals,
                     treasuryName: treasuryName,
                     amount: amount,
-                    from: spend.data.beneficiary,
-                    amountSwapped: burn ? burn.data[2] : null,
+                    beneficiary: spend.data.beneficiary,
+                    communityCurrencyAmountSwapped: burn ? burn.data[2] : null,
                     timestamp: spend.timestamp,
                 };
             })
