@@ -312,19 +312,18 @@ class Database {
         return correspondingBurn;
     }
 
-    async incomingTreasuryTxns(treasury, start, end) {
+    async incomingTreasuryTxns(treasury, treasuryKAH, start, end) {
         const [incoming, incomingNative] = await Promise.all([
             this.indexerAssetHub
                 .collection("events")
                 .find({
                     section: "foreignAssets",
                     method: "Transferred",
-                    "data.to": treasury,
+                    "data.to": treasuryKAH,
                     timestamp: { $gte: start, $lte: end },
                 })
                 .toArray(),
-            this.indexerAssetHub
-                .collection("events")
+            this.events
                 .find({
                     section: "balances",
                     method: "Transfer",

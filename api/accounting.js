@@ -497,7 +497,7 @@ accounting.get("/community-treasury-log", async function (req, res, next) {
         const treasury = getTreasuryByCid(cid);
         let [spends, incomingTransactions] = await Promise.all([
             db.getTreasurySpendsByTreasury(treasury.address, start, end),
-            db.incomingTreasuryTxns(treasury.kahAccount, start, end),
+            db.incomingTreasuryTxns(treasury.address, treasury.kahAccount, start, end),
         ]);
 
         spends = await Promise.all(
