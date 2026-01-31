@@ -357,7 +357,7 @@ export async function gatherRewardsData(api, cid) {
     return result;
 }
 
-export function generateTxnLog(incoming, outgoing, issues, spends) {
+export function generateTxnLog(incoming, outgoing, issues, spends=null) {
     const incomingLog = incoming.map((e) => ({
         blockNumber: e.blockNumber.toString(),
         timestamp: e.timestamp.toString(),
@@ -377,16 +377,19 @@ export function generateTxnLog(incoming, outgoing, issues, spends) {
         amount: e.data[2],
     }));
 
-    const spendLog = spends.map((e) => ({
-        blockNumber: e.blockNumber.toString(),
-        timestamp: e.timestamp.toString(),
-        counterParty: "TREASURY",
-        amount: e.amount,
-        foreignAssetName: e.foreignAssetName,
-        foreignAssetAmount: e.foreignAssetAmount,
-        type: e.name,
-        treasuryName: e.treasuryName,
-    }));
+    const spendLog = spends
+        ? spends.map((e) => ({
+              blockNumber: e.blockNumber.toString(),
+              timestamp: e.timestamp.toString(),
+              counterParty: "TREASURY",
+              amount: e.amount,
+              foreignAssetName: e.foreignAssetName,
+              foreignAssetAmount: e.foreignAssetAmount,
+              type: e.name,
+              treasuryName: e.treasuryName,
+          }))
+        : [];
+        
     const txnLog = incomingLog
         .concat(outgoingLog)
         .concat(issuesLog)
