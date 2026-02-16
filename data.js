@@ -26,7 +26,7 @@ function monthIsOver(month, year) {
     const now = new Date();
     const yearNow = now.getUTCFullYear();
     let monthNow = now.getUTCMonth();
-    return year < yearNow || month < monthNow;
+    return year < yearNow || (year === yearNow && month < monthNow);
 }
 
 function monthIsInFuture(month, year) {
@@ -563,7 +563,7 @@ export async function getMoneyVelocity(
     month,
     useTotalVolume = false
 ) {
-    if (monthIsInFuture(month, year)) throw Exception("month is in future");
+    if (monthIsInFuture(month, year)) throw new Error("month is in future");
 
     const monthOver = monthIsOver(month, year);
     const cachedData = await db.getFromGeneralCache("moneyVelocity", {

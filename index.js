@@ -69,17 +69,14 @@ async function main() {
         "http://localhost:3000",
         "https://accounting.encointer.org",
     ];
-    var corsOptions = {};
-
     var corsOptions = {
         credentials: true,
         origin: function (origin, callback) {
-            callback(null, true);
-            // if (whitelist.indexOf(origin) !== -1) {
-            //     callback(null, true);
-            // } else {
-            //     callback(new Error("Not allowed by CORS"));
-            // }
+            if (!origin || whitelist.indexOf(origin) !== -1) {
+                callback(null, true);
+            } else {
+                callback(new Error("Not allowed by CORS"));
+            }
         },
         optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
     };
@@ -91,7 +88,7 @@ async function main() {
     app.use(
         cookieSession({
             name: "session",
-            keys: [process.env.SECRET_KEY],
+            keys: [process.env.SECRET_KEY || (() => { throw new Error("SECRET_KEY env var must be set"); })()],
 
             // Cookie Options
             maxAge: 24 * 60 * 60 * 1000, // 24 hours

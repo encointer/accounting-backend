@@ -74,7 +74,7 @@ auth.post("/change-password", async function (req, res, next) {
         const password = req.body.password;
         const newPassword = req.body.newPassword;
         const user = await db.checkUserCredentials(address, password);
-        if (!user || !db.checkUserCredentials(address, password)) {
+        if (!user) {
             res.sendStatus(403);
             return;
         }

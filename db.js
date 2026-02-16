@@ -157,8 +157,8 @@ class Database {
     async createUser(address, name, cids) {
         if (await this.getUser(address)) throw Error("User Exists");
         const password = getRandomPassword();
-        this.upsertUser(address, password, name);
-        this.addUserToCommunities(address, cids);
+        await this.upsertUser(address, password, name);
+        await this.addUserToCommunities(address, cids);
         return password;
     }
 
