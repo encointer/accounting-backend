@@ -3,18 +3,21 @@
 // Cache warming / smoke test script.
 //
 // Usage:
-//   Production (all endpoints, all years, requires auth):
+//   CI (forge admin session via SECRET_KEY):
+//     SECRET_KEY=ci-test-secret node scripts/warm-caches.js --quick
+//
+//   Production (authenticate with real credentials):
 //     BASE_URL=https://accounting.encointer.org \
 //     AUTH_ADDRESS=... AUTH_PASSWORD=... \
 //     node scripts/warm-caches.js
 //
-//   CI (public endpoints only, current year):
-//     node scripts/warm-caches.js --quick
-//
 // Exits 0 if all attempted endpoints succeed, 1 otherwise.
+
+import crypto from "crypto";
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:8081";
 const QUICK = process.argv.includes("--quick");
+const SECRET_KEY = process.env.SECRET_KEY;
 const AUTH_ADDRESS = process.env.AUTH_ADDRESS;
 const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
 
@@ -26,7 +29,32 @@ let passed = 0;
 let failed = 0;
 let sessionCookie = null;
 
+// Forge a cookie-session cookie signed with SECRET_KEY (same as the server uses).
+function forgeSessionCookie(sessionData) {
+    const value = Buffer.from(JSON.stringify(sessionData)).toString("base64");
+    const sig = crypto
+        .createHmac("sha1", SECRET_KEY)
+        .update("session=" + value)
+        .digest("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+    return `session=${value}; session.sig=${sig}`;
+}
+
 async function authenticate() {
+    // Prefer forging a cookie when we know the secret (CI)
+    if (SECRET_KEY) {
+        sessionCookie = forgeSessionCookie({
+            isReadonlyAdmin: true,
+            isAdmin: false,
+            address: SAMPLE_ACCOUNT,
+            name: "cache-warmer",
+        });
+        console.log("  pass  forged readonlyAdmin session via SECRET_KEY");
+        return true;
+    }
+    // Otherwise authenticate against the running server (production)
     if (!AUTH_ADDRESS || !AUTH_PASSWORD) return false;
     try {
         const res = await fetch(`${BASE_URL}/v1/auth/authenticate`, {
@@ -42,7 +70,7 @@ async function authenticate() {
         const setCookie = res.headers.getSetCookie?.() || [];
         sessionCookie = setCookie.map((c) => c.split(";")[0]).join("; ");
         const user = await res.json();
-        console.log(`  pass  authenticated as ${user.name} (readonlyAdmin=${user.isReadonlyAdmin})`);
+        console.log(`  pass  authenticated as ${user.name}`);
         return true;
     } catch (e) {
         console.log(`  FAIL  authenticate -> ${e.message}`);
@@ -77,11 +105,11 @@ async function hit(label, path, timeoutMs = 120_000) {
 
 async function main() {
     console.log(`Target: ${BASE_URL}`);
-    console.log(`Mode:   ${QUICK ? "quick (public endpoints)" : "full"}\n`);
+    console.log(`Mode:   ${QUICK ? "quick" : "full"}\n`);
 
     const authed = await authenticate();
-    if (!QUICK && !authed) {
-        console.log("Warning: no auth credentials, skipping protected endpoints.\n");
+    if (!authed) {
+        console.log("Warning: no auth, skipping protected endpoints.\n");
     }
 
     // ── communities ────────────────────────────────────────────────────
@@ -118,20 +146,20 @@ async function main() {
             );
         }
 
-        // Public: rewards-data (no auth guard, but RPC-heavy)
-        if (!QUICK) {
-            await hit("rewards-data", `/v1/accounting/rewards-data?cid=${cid}`, 600_000);
-        }
-
-        // Auth-required endpoints
-        if (!authed) continue;
-
-        for (const y of years) {
-            await hit(`volume-report ${y}`, `/v1/accounting/volume-report?cid=${cid}&year=${y}`);
-            await hit(`transaction-activity ${y}`, `/v1/accounting/transaction-activity?cid=${cid}&year=${y}`);
+        // DB-only, auth-required
+        if (authed) {
+            for (const y of years) {
+                await hit(`volume-report ${y}`, `/v1/accounting/volume-report?cid=${cid}&year=${y}`);
+                await hit(`transaction-activity ${y}`, `/v1/accounting/transaction-activity?cid=${cid}&year=${y}`);
+            }
         }
 
         if (QUICK) continue;
+
+        // RPC-heavy endpoints (skip in --quick mode)
+        await hit("rewards-data", `/v1/accounting/rewards-data?cid=${cid}`, 600_000);
+
+        if (!authed) continue;
 
         for (const y of years) {
             await hit(
@@ -143,7 +171,6 @@ async function main() {
         await hit("reputables-by-cindex", `/v1/accounting/reputables-by-cindex?cid=${cid}`, 600_000);
         await hit("frequency-of-attendance", `/v1/accounting/frequency-of-attendance?cid=${cid}`, 600_000);
 
-        // all-accounts-data populates per-user cache (very slow)
         for (const y of years) {
             await hit(
                 `all-accounts-data ${y}`,
