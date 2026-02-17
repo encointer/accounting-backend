@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Start server
+        env:
+          DB_URL: ${{ secrets.MONGODB_URL }}
+          SECRET_KEY: ci-test-secret
+          # Use default ENCOINTER_RPC (wss://kusama.api.encointer.org)
+        run: node index.js &
+
+      - name: Wait for server
+        run: |
+          for i in $(seq 1 120); do
+            if curl -sf http://localhost:8081/v1/communities/all-communities > /dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Server failed to start within 120s"
+          exit 1
+
+      - name: Smoke tests
+        run: node scripts/warm-caches.js --quick
