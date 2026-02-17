@@ -180,6 +180,12 @@ async function main() {
         }
     }
 
+    // ── faucet ──────────────────────────────────────────────────────────
+    if (authed) {
+        console.log("\n[faucet]");
+        await hit("faucet-drips", "/v1/faucet/drips");
+    }
+
     // ── account-specific endpoints (sample account, Leu) ──────────────
     console.log("\n[account-specific / sample]");
     await hit(
