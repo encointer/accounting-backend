@@ -16,7 +16,7 @@ const treasuryMap = {
     },
 };
 
-const assedIdMap = {
+const assetIdMap = {
     USDC: {
         assetId: {
             V5: {
@@ -42,14 +42,14 @@ const assedIdMap = {
 };
 
 export function getTreasuryName(address) {
-    return treasuryMap[address].name || address;
+    return treasuryMap[address]?.name || address;
 }
 
 export function getAssetNameAndDecimals(assetId) {
     if (!assetId) {
         return { name: "KSM", decimals: 12 };
     }
-    for (const [name, info] of Object.entries(assedIdMap)) {
+    for (const [name, info] of Object.entries(assetIdMap)) {
         if (JSON.stringify(info.assetId) === JSON.stringify(assetId)) {
             return { name, decimals: info.decimals };
         }
@@ -81,6 +81,7 @@ export function getAssetNameAndDecimals(assetId) {
             }
         }
     }
+    return null;
 }
 
 export function getTreasuryByCid(cid) {

@@ -3,16 +3,23 @@
 // Cache warming / smoke test script.
 //
 // Usage:
-//   Production (all endpoints, all years):
-//     BASE_URL=https://accounting.encointer.org node scripts/warm-caches.js
+//   CI (forge admin session via SECRET_KEY):
+//     SECRET_KEY=ci-test-secret node scripts/warm-caches.js --quick
 //
-//   CI (DB-only endpoints, current year):
-//     node scripts/warm-caches.js --quick
+//   Production (authenticate with real credentials):
+//     BASE_URL=https://accounting.encointer.org \
+//     AUTH_ADDRESS=... AUTH_PASSWORD=... \
+//     node scripts/warm-caches.js
 //
 // Exits 0 if all attempted endpoints succeed, 1 otherwise.
 
+import crypto from "crypto";
+
 const BASE_URL = process.env.BASE_URL || "http://localhost:8081";
 const QUICK = process.argv.includes("--quick");
+const SECRET_KEY = process.env.SECRET_KEY;
+const AUTH_ADDRESS = process.env.AUTH_ADDRESS;
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD;
 
 const SAMPLE_ACCOUNT = "DGeoBv3E9xniabhyWsSjd25Te8ZmjQ7zndc2VVbmU8zmZQB";
 const TREASURY_CIDS = new Set(["u0qj944rhWE", "kygch5kVGq7", "s1vrqQL2SD"]);
@@ -20,13 +27,65 @@ const START_YEAR = 2022;
 
 let passed = 0;
 let failed = 0;
+let sessionCookie = null;
+
+// Forge a cookie-session cookie signed with SECRET_KEY (same as the server uses).
+function forgeSessionCookie(sessionData) {
+    const value = Buffer.from(JSON.stringify(sessionData)).toString("base64");
+    const sig = crypto
+        .createHmac("sha1", SECRET_KEY)
+        .update("session=" + value)
+        .digest("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+    return `session=${value}; session.sig=${sig}`;
+}
+
+async function authenticate() {
+    // Prefer forging a cookie when we know the secret (CI)
+    if (SECRET_KEY) {
+        sessionCookie = forgeSessionCookie({
+            isReadonlyAdmin: true,
+            isAdmin: false,
+            address: SAMPLE_ACCOUNT,
+            name: "cache-warmer",
+        });
+        console.log("  pass  forged readonlyAdmin session via SECRET_KEY");
+        return true;
+    }
+    // Otherwise authenticate against the running server (production)
+    if (!AUTH_ADDRESS || !AUTH_PASSWORD) return false;
+    try {
+        const res = await fetch(`${BASE_URL}/v1/auth/authenticate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ address: AUTH_ADDRESS, password: AUTH_PASSWORD }),
+            redirect: "manual",
+        });
+        if (!res.ok) {
+            console.log(`  FAIL  authenticate -> HTTP ${res.status}`);
+            return false;
+        }
+        const setCookie = res.headers.getSetCookie?.() || [];
+        sessionCookie = setCookie.map((c) => c.split(";")[0]).join("; ");
+        const user = await res.json();
+        console.log(`  pass  authenticated as ${user.name}`);
+        return true;
+    } catch (e) {
+        console.log(`  FAIL  authenticate -> ${e.message}`);
+        return false;
+    }
+}
 
 async function hit(label, path, timeoutMs = 120_000) {
     const url = `${BASE_URL}${path}`;
+    const headers = {};
+    if (sessionCookie) headers["Cookie"] = sessionCookie;
     try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
-        const res = await fetch(url, { signal: controller.signal });
+        const res = await fetch(url, { signal: controller.signal, headers });
         clearTimeout(timer);
         if (res.ok) {
             const body = await res.text();
@@ -46,7 +105,12 @@ async function hit(label, path, timeoutMs = 120_000) {
 
 async function main() {
     console.log(`Target: ${BASE_URL}`);
-    console.log(`Mode:   ${QUICK ? "quick (DB-only)" : "full"}\n`);
+    console.log(`Mode:   ${QUICK ? "quick" : "full"}\n`);
+
+    const authed = await authenticate();
+    if (!authed) {
+        console.log("Warning: no auth, skipping protected endpoints.\n");
+    }
 
     // ── communities ────────────────────────────────────────────────────
     let communities;
@@ -74,13 +138,7 @@ async function main() {
     for (const { cid, name } of communities) {
         console.log(`\n[${name} / ${cid}]`);
 
-        // DB-only, fast
-        for (const y of years) {
-            await hit(`volume-report ${y}`, `/v1/accounting/volume-report?cid=${cid}&year=${y}`);
-            await hit(`transaction-activity ${y}`, `/v1/accounting/transaction-activity?cid=${cid}&year=${y}`);
-        }
-
-        // treasury log (DB-only, only for known treasury communities)
+        // Public: treasury log
         if (TREASURY_CIDS.has(cid)) {
             await hit(
                 "community-treasury-log",
@@ -88,10 +146,21 @@ async function main() {
             );
         }
 
+        // DB-only, auth-required
+        if (authed) {
+            for (const y of years) {
+                await hit(`volume-report ${y}`, `/v1/accounting/volume-report?cid=${cid}&year=${y}`);
+                await hit(`transaction-activity ${y}`, `/v1/accounting/transaction-activity?cid=${cid}&year=${y}`);
+            }
+        }
+
         if (QUICK) continue;
 
         // RPC-heavy endpoints (skip in --quick mode)
         await hit("rewards-data", `/v1/accounting/rewards-data?cid=${cid}`, 600_000);
+
+        if (!authed) continue;
+
         for (const y of years) {
             await hit(
                 `money-velocity ${y}`,
@@ -102,7 +171,6 @@ async function main() {
         await hit("reputables-by-cindex", `/v1/accounting/reputables-by-cindex?cid=${cid}`, 600_000);
         await hit("frequency-of-attendance", `/v1/accounting/frequency-of-attendance?cid=${cid}`, 600_000);
 
-        // all-accounts-data populates per-user cache (very slow)
         for (const y of years) {
             await hit(
                 `all-accounts-data ${y}`,
@@ -123,7 +191,7 @@ async function main() {
         `/v1/accounting/native-transaction-log?start=${oneYearAgo}&end=${now}&account=${SAMPLE_ACCOUNT}`
     );
 
-    if (!QUICK) {
+    if (!QUICK && authed) {
         await hit(
             "account-overview",
             `/v1/accounting/account-overview?cid=u0qj944rhWE&timestamp=${now}`,
