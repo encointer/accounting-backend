@@ -878,6 +878,77 @@ export async function getTransactionActivityLog(
     return data;
 }
 
+export async function getCommunityFlowData(cid, year, month) {
+    if (monthIsInFuture(month, year)) throw new Error("month is in future");
+
+    const cachedData = await db.getFromGeneralCache("communityFlow", {
+        cid,
+        year,
+        month,
+    });
+    if (cachedData.length === 1) return cachedData[0];
+
+    const start = getFirstTimeStampOfMonth(year, month);
+    const end = getLastTimeStampOfMonth(year, month);
+    const transfers = await getAllTransfers(start, end, cid);
+
+    // Aggregate by (sender, recipient) pair
+    const edgeMap = new Map();
+    const nodeIds = new Set();
+    for (const t of transfers) {
+        const sender = t.data[1];
+        const recipient = t.data[2];
+        const amount = t.data[3];
+        nodeIds.add(sender);
+        nodeIds.add(recipient);
+        const key = `${sender}|${recipient}`;
+        if (edgeMap.has(key)) {
+            const e = edgeMap.get(key);
+            e.amount += amount;
+            e.count += 1;
+        } else {
+            edgeMap.set(key, { source: sender, target: recipient, amount, count: 1 });
+        }
+    }
+
+    // Classify nodes
+    const [allUsers, apAddresses, voucherAddresses, govAddresses] =
+        await Promise.all([
+            db.getAllUsers(),
+            db.getAcceptancePointAddresses(cid),
+            db.getVoucherAddresses(cid),
+            db.getGovAddresses(cid),
+        ]);
+    const userMap = new Map(allUsers.map((u) => [u.address, u.name]));
+    const apSet = new Set(apAddresses);
+    const voucherSet = new Set(voucherAddresses);
+    const govSet = new Set(govAddresses);
+
+    const classifyType = (id) => {
+        if (apSet.has(id)) return "acceptancePoint";
+        if (voucherSet.has(id)) return "voucher";
+        if (govSet.has(id)) return "gov";
+        return "personal";
+    };
+
+    const nodes = [...nodeIds].map((id) => ({
+        id,
+        name: userMap.get(id) || id.slice(0, 8) + "...",
+        type: classifyType(id),
+    }));
+    const edges = [...edgeMap.values()];
+
+    const result = { nodes, edges };
+    if (canBeCached(month, year)) {
+        await db.insertIntoGeneralCache(
+            "communityFlow",
+            { cid, year, month },
+            result
+        );
+    }
+    return result;
+}
+
 export async function getSankeyReport(
     api,
     cid,

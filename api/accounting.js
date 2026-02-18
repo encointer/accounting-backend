@@ -12,6 +12,7 @@ import {
     getFrequencyOfAttendance,
     getTransactionActivityLog,
     getSankeyReport,
+    getCommunityFlowData,
     generateNativeTxnLog,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
@@ -908,6 +909,29 @@ accounting.get("/transaction-activity", async function (req, res, next) {
  *     security:
  *      - cookieAuth: []
  */
+accounting.get("/community-flow", async function (req, res, next) {
+    try {
+        if (!req.session.isReadonlyAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        const cid = req.query.cid;
+        const year = parseInt(req.query.year);
+        const month = parseInt(req.query.month);
+
+        const community = await db.getCommunity(cid);
+        const data = await getCommunityFlowData(cid, year, month);
+        res.send(
+            JSON.stringify({
+                ...data,
+                communityName: community.name,
+            })
+        );
+    } catch (e) {
+        next(e);
+    }
+});
+
 accounting.get("/sankey-report", async function (req, res, next) {
     try {
         if (!req.session.isReadonlyAdmin) {
