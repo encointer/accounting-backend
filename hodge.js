@@ -1,110 +1,115 @@
 /**
- * Helmholtz-Hodge Decomposition for directed flow graphs.
+ * Cycle flow decomposition for directed flow graphs.
  *
- * Decomposes edge flows f into gradient (source→sink) and circular components.
- * circularity = ||f_circular||₁ / ||f||₁
+ * Repeatedly finds a cycle, peels the bottleneck (min-edge) flow,
+ * and accumulates circular flow. The circularity index is the fraction
+ * of total edge-flow that participates in cycles.
  */
 
 /**
  * @param {Array<{id: string}>} nodes
  * @param {Array<{source: string, target: string, amount: number}>} edges
- * @returns {number} L2 circularity ratio in [0, 1] (fraction of flow energy that is circular)
+ * @returns {number} circularity ratio in [0, 1]
  */
 export function computeCircularity(nodes, edges) {
     if (!edges || edges.length === 0) return 0;
 
-    // Assign integer indices to nodes
-    const nodeIndex = new Map();
-    nodes.forEach((n, i) => nodeIndex.set(n.id, i));
-    const n = nodes.length;
+    const totalFlow = edges.reduce((sum, e) => sum + e.amount, 0);
+    if (totalFlow === 0) return 0;
 
-    // Build Laplacian L (n×n) and divergence vector div (n)
-    // div(v) = sum(incoming flow) - sum(outgoing flow)
-    const L = Array.from({ length: n }, () => new Float64Array(n));
-    const div = new Float64Array(n);
-
-    for (const edge of edges) {
-        const u = nodeIndex.get(edge.source);
-        const v = nodeIndex.get(edge.target);
-        if (u === undefined || v === undefined) continue;
-        const f = edge.amount;
-
-        // Divergence: positive for sinks, negative for sources
-        div[v] += f;
-        div[u] -= f;
-
-        // Laplacian: L = B·Bᵀ where B is incidence matrix
-        // For each edge (u,v): L[u][u]+=1, L[v][v]+=1, L[u][v]-=1, L[v][u]-=1
-        L[u][u] += 1;
-        L[v][v] += 1;
-        L[u][v] -= 1;
-        L[v][u] -= 1;
+    // Build residual adjacency: source → Map<target, amount>
+    const residual = new Map();
+    for (const e of edges) {
+        if (!residual.has(e.source)) residual.set(e.source, new Map());
+        const out = residual.get(e.source);
+        out.set(e.target, (out.get(e.target) || 0) + e.amount);
     }
 
-    // Solve L·s = div with node 0 pinned to s=0 (Gaussian elimination)
-    // Remove row/col 0 → solve (n-1)×(n-1) system
-    const m = n - 1;
-    if (m === 0) return 0;
+    let circularFlow = 0;
 
-    // Build augmented matrix [A | b] where A = L[1:,1:], b = div[1:]
-    const aug = Array.from({ length: m }, (_, i) => {
-        const row = new Float64Array(m + 1);
-        for (let j = 0; j < m; j++) {
-            row[j] = L[i + 1][j + 1];
-        }
-        row[m] = div[i + 1];
-        return row;
-    });
+    // Repeatedly find and peel cycles
+    for (;;) {
+        const cycle = findCycle(residual);
+        if (!cycle) break;
 
-    // Gaussian elimination with partial pivoting
-    for (let col = 0; col < m; col++) {
-        // Find pivot
-        let maxVal = Math.abs(aug[col][col]);
-        let maxRow = col;
-        for (let row = col + 1; row < m; row++) {
-            const val = Math.abs(aug[row][col]);
-            if (val > maxVal) { maxVal = val; maxRow = row; }
+        // Find bottleneck
+        let bottleneck = Infinity;
+        for (let i = 0; i < cycle.length; i++) {
+            const u = cycle[i];
+            const v = cycle[(i + 1) % cycle.length];
+            bottleneck = Math.min(bottleneck, residual.get(u).get(v));
         }
-        if (maxVal < 1e-12) continue; // singular column
-        if (maxRow !== col) {
-            const tmp = aug[col]; aug[col] = aug[maxRow]; aug[maxRow] = tmp;
+
+        // Peel bottleneck flow from each cycle edge
+        for (let i = 0; i < cycle.length; i++) {
+            const u = cycle[i];
+            const v = cycle[(i + 1) % cycle.length];
+            const out = residual.get(u);
+            const remaining = out.get(v) - bottleneck;
+            if (remaining < 1e-9) {
+                out.delete(v);
+                if (out.size === 0) residual.delete(u);
+            } else {
+                out.set(v, remaining);
+            }
         }
-        const pivot = aug[col][col];
-        for (let row = col + 1; row < m; row++) {
-            const factor = aug[row][col] / pivot;
-            for (let j = col; j <= m; j++) {
-                aug[row][j] -= factor * aug[col][j];
+
+        circularFlow += bottleneck * cycle.length;
+    }
+
+    return circularFlow / totalFlow;
+}
+
+/**
+ * Find any cycle in the residual graph via DFS.
+ * Returns array of node IDs forming the cycle, or null.
+ */
+function findCycle(residual) {
+    const visited = new Set();
+    const inStack = new Set();
+    const parent = new Map();
+
+    for (const start of residual.keys()) {
+        if (visited.has(start)) continue;
+
+        const stack = [start];
+        const iterators = new Map();
+        iterators.set(start, (residual.get(start) || new Map()).keys());
+        inStack.add(start);
+        visited.add(start);
+
+        while (stack.length > 0) {
+            const u = stack[stack.length - 1];
+            const iter = iterators.get(u);
+            const next = iter.next();
+
+            if (next.done) {
+                stack.pop();
+                inStack.delete(u);
+                continue;
+            }
+
+            const v = next.value;
+            if (inStack.has(v)) {
+                // Found cycle — extract it
+                const cycle = [v];
+                for (let i = stack.length - 1; i >= 0; i--) {
+                    if (stack[i] === v) break;
+                    cycle.push(stack[i]);
+                }
+                cycle.reverse();
+                return cycle;
+            }
+
+            if (!visited.has(v) && residual.has(v)) {
+                visited.add(v);
+                inStack.add(v);
+                parent.set(v, u);
+                stack.push(v);
+                iterators.set(v, (residual.get(v) || new Map()).keys());
             }
         }
     }
 
-    // Back substitution
-    const s = new Float64Array(n); // s[0] = 0 (pinned)
-    for (let i = m - 1; i >= 0; i--) {
-        if (Math.abs(aug[i][i]) < 1e-12) { s[i + 1] = 0; continue; }
-        let sum = aug[i][m];
-        for (let j = i + 1; j < m; j++) {
-            sum -= aug[i][j] * s[j + 1];
-        }
-        s[i + 1] = sum / aug[i][i];
-    }
-
-    // L2 (energy) circularity: Σ(f_circular²) / Σ(f²)
-    // Gradient and circular components are orthogonal in L2, so this
-    // is guaranteed to be in [0, 1] without clamping.
-    let totalFlowSq = 0;
-    let circularFlowSq = 0;
-    for (const edge of edges) {
-        const u = nodeIndex.get(edge.source);
-        const v = nodeIndex.get(edge.target);
-        if (u === undefined || v === undefined) continue;
-        const f = edge.amount;
-        const fGradient = s[v] - s[u];
-        const fCircular = f - fGradient;
-        totalFlowSq += f * f;
-        circularFlowSq += fCircular * fCircular;
-    }
-
-    if (totalFlowSq === 0) return 0;
-    return circularFlowSq / totalFlowSq;
+    return null;
 }
