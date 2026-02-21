@@ -9,13 +9,13 @@
 /**
  * @param {Array<{id: string}>} nodes
  * @param {Array<{source: string, target: string, amount: number}>} edges
- * @returns {number} circularity ratio in [0, 1]
+ * @returns {{ ratio: number, circularFlow: number }} ratio in [0,1] and absolute circular flow
  */
 export function computeCircularity(nodes, edges) {
-    if (!edges || edges.length === 0) return 0;
+    if (!edges || edges.length === 0) return { ratio: 0, circularFlow: 0 };
 
     const totalFlow = edges.reduce((sum, e) => sum + e.amount, 0);
-    if (totalFlow === 0) return 0;
+    if (totalFlow === 0) return { ratio: 0, circularFlow: 0 };
 
     // Build residual adjacency: source → Map<target, amount>
     const residual = new Map();
@@ -57,7 +57,7 @@ export function computeCircularity(nodes, edges) {
         circularFlow += bottleneck * cycle.length;
     }
 
-    return circularFlow / totalFlow;
+    return { ratio: circularFlow / totalFlow, circularFlow };
 }
 
 /**

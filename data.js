@@ -1000,7 +1000,7 @@ export async function getCircularityTimeSeries(cid) {
         if (canBeCached(m, y)) {
             const cached = await db.getFromGeneralCache("circularity", { cid, year: y, month: m });
             if (cached.length === 1) {
-                result[label] = cached[0].circularity;
+                result[label] = { ratio: cached[0].ratio, circularFlow: cached[0].circularFlow };
                 m++;
                 if (m > 11) { m = 0; y++; }
                 continue;
@@ -1013,14 +1013,14 @@ export async function getCircularityTimeSeries(cid) {
             let wy = y;
             if (wm < 0) { wm += 12; wy--; }
             const { nodes, edges } = await getCommunityFlowDataRange(cid, wy, wm, y, m);
-            const circularity = computeCircularity(nodes, edges);
-            result[label] = circularity;
+            const { ratio, circularFlow } = computeCircularity(nodes, edges);
+            result[label] = { ratio, circularFlow };
 
             if (canBeCached(m, y)) {
                 await db.insertIntoGeneralCache(
                     "circularity",
                     { cid, year: y, month: m },
-                    { circularity }
+                    { ratio, circularFlow }
                 );
             }
         } catch {
