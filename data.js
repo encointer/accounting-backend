@@ -17,6 +17,7 @@ import {
     toNativeDecimal,
 } from "./util.js";
 import BN from "bn.js";
+import { computeCircularity } from "./hodge.js";
 
 function canBeCached(month, year) {
     return monthIsOver(month, year);
@@ -946,6 +947,86 @@ export async function getCommunityFlowData(cid, year, month) {
             result
         );
     }
+    return result;
+}
+
+export async function getCommunityFlowDataRange(cid, startYear, startMonth, endYear, endMonth) {
+    const allNodes = new Map();
+    const edgeMap = new Map();
+
+    let y = startYear;
+    let m = startMonth;
+    while (y < endYear || (y === endYear && m <= endMonth)) {
+        try {
+            const { nodes, edges } = await getCommunityFlowData(cid, y, m);
+            for (const node of nodes) {
+                if (!allNodes.has(node.id)) allNodes.set(node.id, node);
+            }
+            for (const edge of edges) {
+                const key = `${edge.source}|${edge.target}`;
+                if (edgeMap.has(key)) {
+                    const e = edgeMap.get(key);
+                    e.amount += edge.amount;
+                    e.count += edge.count;
+                } else {
+                    edgeMap.set(key, { ...edge });
+                }
+            }
+        } catch {
+            // month in future or no data — skip
+        }
+        m++;
+        if (m > 11) { m = 0; y++; }
+    }
+
+    return { nodes: [...allNodes.values()], edges: [...edgeMap.values()] };
+}
+
+export async function getCircularityTimeSeries(cid) {
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+    const startYear = 2022;
+    const startMonth = 5; // encointer started Jun 2022
+
+    const result = {};
+    let y = startYear;
+    let m = startMonth;
+
+    while (y < currentYear || (y === currentYear && m <= currentMonth)) {
+        const label = `${getMonthName(m).slice(0, 3)} ${y}`;
+
+        // Check cache for completed months
+        if (canBeCached(m, y)) {
+            const cached = await db.getFromGeneralCache("circularity", { cid, year: y, month: m });
+            if (cached.length === 1) {
+                result[label] = cached[0].circularity;
+                m++;
+                if (m > 11) { m = 0; y++; }
+                continue;
+            }
+        }
+
+        try {
+            const { nodes, edges } = await getCommunityFlowData(cid, y, m);
+            const circularity = computeCircularity(nodes, edges);
+            result[label] = circularity;
+
+            if (canBeCached(m, y)) {
+                await db.insertIntoGeneralCache(
+                    "circularity",
+                    { cid, year: y, month: m },
+                    { circularity }
+                );
+            }
+        } catch {
+            // skip months with no data
+        }
+
+        m++;
+        if (m > 11) { m = 0; y++; }
+    }
+
     return result;
 }
 

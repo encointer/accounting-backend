@@ -13,6 +13,8 @@ import {
     getTransactionActivityLog,
     getSankeyReport,
     getCommunityFlowData,
+    getCommunityFlowDataRange,
+    getCircularityTimeSeries,
     generateNativeTxnLog,
 } from "../data.js";
 import { parseEncointerBalance } from "@encointer/types";
@@ -930,14 +932,50 @@ accounting.get("/community-flow", async function (req, res, next) {
             return;
         }
         const cid = req.query.cid;
-        const year = parseInt(req.query.year);
-        const month = parseInt(req.query.month);
-
         const community = await db.getCommunity(cid);
-        const data = await getCommunityFlowData(cid, year, month);
+
+        let data;
+        if (req.query.startYear !== undefined) {
+            // Range mode
+            data = await getCommunityFlowDataRange(
+                cid,
+                parseInt(req.query.startYear),
+                parseInt(req.query.startMonth),
+                parseInt(req.query.endYear),
+                parseInt(req.query.endMonth)
+            );
+        } else {
+            // Backward-compatible single month
+            data = await getCommunityFlowData(
+                cid,
+                parseInt(req.query.year),
+                parseInt(req.query.month)
+            );
+        }
+
         res.send(
             JSON.stringify({
                 ...data,
+                communityName: community.name,
+            })
+        );
+    } catch (e) {
+        next(e);
+    }
+});
+
+accounting.get("/circularity", async function (req, res, next) {
+    try {
+        if (!req.session.isReadonlyAdmin) {
+            res.sendStatus(403);
+            return;
+        }
+        const cid = req.query.cid;
+        const community = await db.getCommunity(cid);
+        const data = await getCircularityTimeSeries(cid);
+        res.send(
+            JSON.stringify({
+                data,
                 communityName: community.name,
             })
         );

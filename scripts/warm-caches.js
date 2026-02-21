@@ -154,6 +154,15 @@ async function main() {
                 await hit(`volume-report ${y}`, `/v1/accounting/volume-report?cid=${cid}&year=${y}`);
                 await hit(`transaction-activity ${y}`, `/v1/accounting/transaction-activity?cid=${cid}&year=${y}`);
             }
+            // Community flow for full previous year
+            const prevYear = currentYear - 1;
+            await hit(
+                `community-flow range ${prevYear}`,
+                `/v1/accounting/community-flow?cid=${cid}&startYear=${prevYear}&startMonth=0&endYear=${prevYear}&endMonth=11`,
+                300_000
+            );
+            // Circularity time series
+            await hit(`circularity`, `/v1/accounting/circularity?cid=${cid}`, 600_000);
         }
 
         if (QUICK) continue;
