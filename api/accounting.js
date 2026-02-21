@@ -432,9 +432,14 @@ accounting.get("/transaction-log", async function (req, res, next) {
                 amount = -transferToTreasury.data[3];
             }
 
-            const { name, decimals } = getAssetNameAndDecimals(
+            const nameAndDecimals = getAssetNameAndDecimals(
                 spend.data.assetId
             );
+            if (!nameAndDecimals) {
+                console.warn(`transaction-log: unknown assetId in spend ${spend._id}: ${JSON.stringify(spend.data.assetId)}`);
+                continue;
+            }
+            const { name, decimals } = nameAndDecimals;
             const treasuryName = getTreasuryName(spend.data.treasury);
             const assetAmount =
                 parseInt(spend.data.amount.replace(/,/g, "")) /
@@ -496,20 +501,29 @@ accounting.get("/community-treasury-log", async function (req, res, next) {
         const end = parseInt(query.end);
 
         const treasury = getTreasuryByCid(cid);
+        if (!treasury) {
+            res.status(400).send(JSON.stringify({ error: `No treasury configured for cid ${cid}` }));
+            return;
+        }
         let [spends, incomingTransactions] = await Promise.all([
             db.getTreasurySpendsByTreasury(treasury.address, start, end),
             db.incomingTreasuryTxns(treasury.address, treasury.kahAccount, start, end),
         ]);
 
-        spends = await Promise.all(
+        spends = (await Promise.all(
             spends.map(async (spend) => {
                 const [burn, sendToTreasury] = await Promise.all([
                     db.treasurySpendCorrespondingBurn(spend),
                     db.treasurySpendCorrespondingTransferToTreasury(spend),
                 ]);
-                const { name, decimals } = getAssetNameAndDecimals(
+                const nameAndDecimals = getAssetNameAndDecimals(
                     spend.data.assetId
                 );
+                if (!nameAndDecimals) {
+                    console.warn(`community-treasury-log: unknown assetId in spend ${spend._id}: ${JSON.stringify(spend.data.assetId)}`);
+                    return null;
+                }
+                const { name, decimals } = nameAndDecimals;
                 const treasuryName = getTreasuryName(spend.data.treasury);
                 const amount =
                     parseInt(spend.data.amount.replace(/,/g, "")) /
@@ -526,7 +540,7 @@ accounting.get("/community-treasury-log", async function (req, res, next) {
                     timestamp: spend.timestamp,
                 };
             })
-        );
+        )).filter((e) => e !== null);
 
         incomingTransactions = incomingTransactions.map((txn) => {
             const nameAndDecimals = getAssetNameAndDecimals(txn.data.assetId);

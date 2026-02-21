@@ -161,6 +161,14 @@ async function main() {
 
         if (!authed) continue;
 
+        // all-accounts-data must run before money-velocity (populates account_data cache)
+        for (const y of years) {
+            await hit(
+                `all-accounts-data ${y}`,
+                `/v1/accounting/all-accounts-data?cid=${cid}&year=${y}`,
+                600_000
+            );
+        }
         for (const y of years) {
             await hit(
                 `money-velocity ${y}`,
@@ -170,14 +178,6 @@ async function main() {
         }
         await hit("reputables-by-cindex", `/v1/accounting/reputables-by-cindex?cid=${cid}`, 600_000);
         await hit("frequency-of-attendance", `/v1/accounting/frequency-of-attendance?cid=${cid}`, 600_000);
-
-        for (const y of years) {
-            await hit(
-                `all-accounts-data ${y}`,
-                `/v1/accounting/all-accounts-data?cid=${cid}&year=${y}`,
-                600_000
-            );
-        }
     }
 
     // ── faucet ──────────────────────────────────────────────────────────

@@ -43,7 +43,7 @@ source .env
 SECRET_KEY=$SECRET_KEY node scripts/warm-caches.js
 ```
 
-This hits every community × every year since 2022, including rewards-data, money-velocity, all-accounts-data, and sankey reports. Expect it to run for a long time on a cold cache. Individual endpoint timeouts go up to 10 minutes.
+This hits every community × every year since 2022, including rewards-data, money-velocity, all-accounts-data, and sankey reports. On a cold cache this can take hours — individual RPC-heavy endpoints may need up to 10 minutes each, and `money-velocity` depends on `all-accounts-data` being cached first. Some 500s on a cold run are expected; run it again after the first pass to fill remaining caches.
 
 ### Production (authenticate against running server)
 
@@ -55,10 +55,20 @@ AUTH_ADDRESS=<your-address> AUTH_PASSWORD=<your-password> \
 node scripts/warm-caches.js
 ```
 
+### Purging caches
+
+Drop all cached data from MongoDB (account_data, rewards_data, general_cache):
+
+```bash
+source .env
+node scripts/purge-caches.js
+```
+
 ### npm scripts
 
 ```bash
-npm test          # same as warm-caches --quick
+npm test             # same as warm-caches --quick
 npm run warm-caches  # full warm-up
+npm run purge-caches # drop all caches
 ```
 
