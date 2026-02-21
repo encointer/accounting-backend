@@ -140,47 +140,54 @@ async function main() {
         ? [currentYear]
         : Array.from({ length: currentYear - START_YEAR + 1 }, (_, i) => currentYear - i);
 
-    // ── Phase 1: DB-only endpoints, recent first ─────────────────────
-    // Iterate years (recent first), all communities per year
-    if (authed) {
-        for (const y of years) {
-            console.log(`\n── Year ${y} ──`);
-            for (const { cid, name } of communities) {
-                console.log(`  [${name} / ${cid}]`);
+    // ── Main loop: years (recent first) → communities → all endpoints ──
+    for (const y of years) {
+        console.log(`\n── Year ${y} ──`);
+        for (const { cid, name } of communities) {
+            console.log(`  [${name} / ${cid}]`);
+
+            // DB-only
+            if (authed) {
                 await hit(`volume-report ${y}`, `/v1/accounting/volume-report?cid=${cid}&year=${y}`);
                 await hit(`transaction-activity ${y}`, `/v1/accounting/transaction-activity?cid=${cid}&year=${y}`);
             }
-        }
-    }
 
-    // ── Phase 2: circularity + community-flow (all communities) ──────
-    if (authed) {
-        console.log(`\n── Circularity & community flow ──`);
-        for (const { cid, name } of communities) {
-            console.log(`  [${name} / ${cid}]`);
-            // Circularity computes all months internally, recent months benefit from
-            // communityFlow cache populated above
-            await hit(`circularity`, `/v1/accounting/circularity?cid=${cid}`, 600_000);
-            // Community flow for last 3 months (default page load)
-            const m = new Date().getUTCMonth();
-            const sm = m >= 2 ? m - 2 : m + 10;
-            const sy = m >= 2 ? currentYear : currentYear - 1;
-            await hit(
-                `community-flow range (recent)`,
-                `/v1/accounting/community-flow?cid=${cid}&startYear=${sy}&startMonth=${sm}&endYear=${currentYear}&endMonth=${m}`,
-                300_000
-            );
-        }
-    }
+            // Circularity + community-flow (only for current year to avoid repeats)
+            if (authed && y === currentYear) {
+                await hit(`circularity`, `/v1/accounting/circularity?cid=${cid}`, 600_000);
+                const m = new Date().getUTCMonth();
+                const sm = m >= 2 ? m - 2 : m + 10;
+                const sy = m >= 2 ? currentYear : currentYear - 1;
+                await hit(
+                    `community-flow range (recent)`,
+                    `/v1/accounting/community-flow?cid=${cid}&startYear=${sy}&startMonth=${sm}&endYear=${currentYear}&endMonth=${m}`,
+                    300_000
+                );
+            }
 
-    // ── Phase 3: treasury logs ────────────────────────────────────────
-    for (const { cid, name } of communities) {
-        if (TREASURY_CIDS.has(cid)) {
-            console.log(`\n  [${name} / ${cid}] treasury`);
-            await hit(
-                "community-treasury-log",
-                `/v1/accounting/community-treasury-log?cid=${cid}&start=${oneYearAgo}&end=${now}`
-            );
+            // Treasury (not year-scoped, run once for current year)
+            if (y === currentYear && TREASURY_CIDS.has(cid)) {
+                await hit(
+                    "community-treasury-log",
+                    `/v1/accounting/community-treasury-log?cid=${cid}&start=${oneYearAgo}&end=${now}`
+                );
+            }
+
+            if (QUICK) continue;
+
+            // RPC-heavy (year-scoped)
+            if (y === currentYear) {
+                await hit("rewards-data", `/v1/accounting/rewards-data?cid=${cid}`, 600_000);
+            }
+            if (authed) {
+                // all-accounts-data must run before money-velocity
+                await hit(`all-accounts-data ${y}`, `/v1/accounting/all-accounts-data?cid=${cid}&year=${y}`, 600_000);
+                await hit(`money-velocity ${y}`, `/v1/accounting/money-velocity-report?cid=${cid}&year=${y}`, 600_000);
+            }
+            if (y === currentYear && authed) {
+                await hit("reputables-by-cindex", `/v1/accounting/reputables-by-cindex?cid=${cid}`, 600_000);
+                await hit("frequency-of-attendance", `/v1/accounting/frequency-of-attendance?cid=${cid}`, 600_000);
+            }
         }
     }
 
@@ -189,40 +196,13 @@ async function main() {
         return;
     }
 
-    // ── Phase 4: RPC-heavy endpoints (all communities) ───────────────
-    for (const { cid, name } of communities) {
-        console.log(`\n[${name} / ${cid}] RPC-heavy`);
-        await hit("rewards-data", `/v1/accounting/rewards-data?cid=${cid}`, 600_000);
-
-        if (!authed) continue;
-
-        // all-accounts-data must run before money-velocity (populates account_data cache)
-        // Recent years first
-        for (const y of years) {
-            await hit(
-                `all-accounts-data ${y}`,
-                `/v1/accounting/all-accounts-data?cid=${cid}&year=${y}`,
-                600_000
-            );
-        }
-        for (const y of years) {
-            await hit(
-                `money-velocity ${y}`,
-                `/v1/accounting/money-velocity-report?cid=${cid}&year=${y}`,
-                600_000
-            );
-        }
-        await hit("reputables-by-cindex", `/v1/accounting/reputables-by-cindex?cid=${cid}`, 600_000);
-        await hit("frequency-of-attendance", `/v1/accounting/frequency-of-attendance?cid=${cid}`, 600_000);
-    }
-
-    // ── Phase 5: faucet ──────────────────────────────────────────────
+    // ── Faucet ──────────────────────────────────────────────────────
     if (authed) {
         console.log("\n[faucet]");
         await hit("faucet-drips", "/v1/faucet/drips");
     }
 
-    // ── Phase 6: account-specific endpoints (sample account, Leu) ────
+    // ── Account-specific endpoints (sample account, Leu) ────
     console.log("\n[account-specific / sample]");
     await hit(
         "transaction-log",
