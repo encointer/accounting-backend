@@ -2,22 +2,31 @@
  * Cycle flow decomposition for directed flow graphs.
  *
  * Repeatedly finds a cycle, peels the bottleneck (min-edge) flow,
- * and accumulates circular flow. The circularity index is the fraction
- * of total edge-flow that participates in cycles.
+ * and accumulates circular flow by cycle length. Returns breakdowns
+ * for minimum cycle sizes 2–5.
  */
+
+const MIN_CYCLE_SIZES = [2, 3, 4, 5];
 
 /**
  * @param {Array<{id: string}>} nodes
  * @param {Array<{source: string, target: string, amount: number}>} edges
- * @returns {{ ratio: number, circularFlow: number }} ratio in [0,1] and absolute circular flow
+ * @returns {{ ratio: Object<number,number>, circularFlow: Object<number,number> }}
+ *   ratio[k] = fraction of flow in cycles of length >= k
+ *   circularFlow[k] = absolute flow in cycles of length >= k
  */
 export function computeCircularity(nodes, edges) {
-    if (!edges || edges.length === 0) return { ratio: 0, circularFlow: 0 };
+    const empty = { ratio: {}, circularFlow: {} };
+    for (const k of MIN_CYCLE_SIZES) {
+        empty.ratio[k] = 0;
+        empty.circularFlow[k] = 0;
+    }
+    if (!edges || edges.length === 0) return empty;
 
     const totalFlow = edges.reduce((sum, e) => sum + e.amount, 0);
-    if (totalFlow === 0) return { ratio: 0, circularFlow: 0 };
+    if (totalFlow === 0) return empty;
 
-    // Build residual adjacency: source → Map<target, amount>
+    // Build residual adjacency: source -> Map<target, amount>
     const residual = new Map();
     for (const e of edges) {
         if (!residual.has(e.source)) residual.set(e.source, new Map());
@@ -25,7 +34,8 @@ export function computeCircularity(nodes, edges) {
         out.set(e.target, (out.get(e.target) || 0) + e.amount);
     }
 
-    let circularFlow = 0;
+    // Accumulate circular flow by exact cycle length
+    const byLength = {};
 
     // Repeatedly find and peel cycles
     for (;;) {
@@ -54,10 +64,23 @@ export function computeCircularity(nodes, edges) {
             }
         }
 
-        circularFlow += bottleneck * cycle.length;
+        const len = cycle.length;
+        byLength[len] = (byLength[len] || 0) + bottleneck * len;
     }
 
-    return { ratio: circularFlow / totalFlow, circularFlow };
+    // Compute cumulative: flow in cycles of length >= k
+    const ratio = {};
+    const circularFlow = {};
+    for (const k of MIN_CYCLE_SIZES) {
+        let sum = 0;
+        for (const [len, flow] of Object.entries(byLength)) {
+            if (parseInt(len) >= k) sum += flow;
+        }
+        ratio[k] = sum / totalFlow;
+        circularFlow[k] = sum;
+    }
+
+    return { ratio, circularFlow };
 }
 
 /**
@@ -67,7 +90,6 @@ export function computeCircularity(nodes, edges) {
 function findCycle(residual) {
     const visited = new Set();
     const inStack = new Set();
-    const parent = new Map();
 
     for (const start of residual.keys()) {
         if (visited.has(start)) continue;
@@ -104,7 +126,6 @@ function findCycle(residual) {
             if (!visited.has(v) && residual.has(v)) {
                 visited.add(v);
                 inStack.add(v);
-                parent.set(v, u);
                 stack.push(v);
                 iterators.set(v, (residual.get(v) || new Map()).keys());
             }

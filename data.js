@@ -998,7 +998,7 @@ export async function getCircularityTimeSeries(cid) {
 
         // Check cache for completed months
         if (canBeCached(m, y)) {
-            const cached = await db.getFromGeneralCache("circularity_v2", { cid, year: y, month: m });
+            const cached = await db.getFromGeneralCache("circularity_v3", { cid, year: y, month: m });
             if (cached.length === 1 && cached[0].hasFlow !== false) {
                 result[label] = { ratio: cached[0].ratio, circularFlow: cached[0].circularFlow };
                 m++;
@@ -1024,7 +1024,7 @@ export async function getCircularityTimeSeries(cid) {
 
             if (canBeCached(m, y)) {
                 await db.insertIntoGeneralCache(
-                    "circularity_v2",
+                    "circularity_v3",
                     { cid, year: y, month: m },
                     { ratio, circularFlow, hasFlow }
                 );
