@@ -8,7 +8,7 @@
 /**
  * @param {Array<{id: string}>} nodes
  * @param {Array<{source: string, target: string, amount: number}>} edges
- * @returns {number} circularity ratio in [0, 1]
+ * @returns {number} L2 circularity ratio in [0, 1] (fraction of flow energy that is circular)
  */
 export function computeCircularity(nodes, edges) {
     if (!edges || edges.length === 0) return 0;
@@ -89,9 +89,11 @@ export function computeCircularity(nodes, edges) {
         s[i + 1] = sum / aug[i][i];
     }
 
-    // Compute circularity: Σ|f_circular| / Σ|f|
-    let totalFlow = 0;
-    let circularFlow = 0;
+    // L2 (energy) circularity: Σ(f_circular²) / Σ(f²)
+    // Gradient and circular components are orthogonal in L2, so this
+    // is guaranteed to be in [0, 1] without clamping.
+    let totalFlowSq = 0;
+    let circularFlowSq = 0;
     for (const edge of edges) {
         const u = nodeIndex.get(edge.source);
         const v = nodeIndex.get(edge.target);
@@ -99,10 +101,10 @@ export function computeCircularity(nodes, edges) {
         const f = edge.amount;
         const fGradient = s[v] - s[u];
         const fCircular = f - fGradient;
-        totalFlow += Math.abs(f);
-        circularFlow += Math.abs(fCircular);
+        totalFlowSq += f * f;
+        circularFlowSq += fCircular * fCircular;
     }
 
-    if (totalFlow === 0) return 0;
-    return Math.min(circularFlow / totalFlow, 1);
+    if (totalFlowSq === 0) return 0;
+    return circularFlowSq / totalFlowSq;
 }
