@@ -17,7 +17,7 @@ import {
     toNativeDecimal,
 } from "./util.js";
 import BN from "bn.js";
-import { computeCircularity } from "./hodge.js";
+import { computeCircularity } from "./circularity.js";
 
 function canBeCached(month, year) {
     return monthIsOver(month, year);

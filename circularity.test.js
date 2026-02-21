@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { computeCircularity } from "./hodge.js";
+import { computeCircularity } from "./circularity.js";
 
 describe("computeCircularity", () => {
     it("returns zeros for empty input", () => {
