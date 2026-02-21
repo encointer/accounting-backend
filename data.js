@@ -1008,7 +1008,11 @@ export async function getCircularityTimeSeries(cid) {
         }
 
         try {
-            const { nodes, edges } = await getCommunityFlowData(cid, y, m);
+            // 3-month sliding window: current month + 2 prior
+            let wm = m - 2;
+            let wy = y;
+            if (wm < 0) { wm += 12; wy--; }
+            const { nodes, edges } = await getCommunityFlowDataRange(cid, wy, wm, y, m);
             const circularity = computeCircularity(nodes, edges);
             result[label] = circularity;
 
