@@ -27,23 +27,23 @@ cp .env.example .env
 
 Many endpoints (accounting data, rewards, volume reports) cache their results in MongoDB once the underlying data is immutable (past months, past ceremony indices). First requests for uncached data are slow (minutes for RPC-heavy endpoints). The `warm-caches` script pre-populates these caches and doubles as a smoke test.
 
-### Local / CI (forge session via SECRET_KEY)
+All scripts load `.env` automatically via dotenv — no need to `source .env`.
+
+### Quick smoke test
 
 ```bash
-source .env
-SECRET_KEY=$SECRET_KEY node scripts/warm-caches.js --quick
+node scripts/warm-caches.js --quick
 ```
 
-`--quick` only tests the current year and skips RPC-heavy endpoints. Good for CI and verifying the server is healthy.
+Only tests the current year and skips RPC-heavy endpoints. Good for CI and verifying the server is healthy.
 
 ### Full warm-up (all years, all endpoints)
 
 ```bash
-source .env
-SECRET_KEY=$SECRET_KEY node scripts/warm-caches.js
+node scripts/warm-caches.js
 ```
 
-This hits every community × every year since 2022, including rewards-data, money-velocity, all-accounts-data, and sankey reports. On a cold cache this can take hours — individual RPC-heavy endpoints may need up to 10 minutes each, and `money-velocity` depends on `all-accounts-data` being cached first. Some 500s on a cold run are expected; run it again after the first pass to fill remaining caches.
+This hits every community × every year since 2022, including rewards-data, money-velocity, all-accounts-data, and sankey reports. On a cold cache this can take hours — individual RPC-heavy endpoints may need up to 10 minutes each.
 
 ### Production (authenticate against running server)
 
@@ -60,7 +60,6 @@ node scripts/warm-caches.js
 Drop all cached data from MongoDB (account_data, rewards_data, general_cache):
 
 ```bash
-source .env
 node scripts/purge-caches.js
 ```
 

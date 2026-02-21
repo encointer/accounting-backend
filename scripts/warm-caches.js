@@ -14,6 +14,8 @@
 // Exits 0 if all attempted endpoints succeed, 1 otherwise.
 
 import crypto from "crypto";
+import * as dotenv from "dotenv";
+dotenv.config();
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:8081";
 const QUICK = process.argv.includes("--quick");
