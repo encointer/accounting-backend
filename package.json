@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "test": "node scripts/warm-caches.js --quick",
-    "warm-caches": "node scripts/warm-caches.js"
+    "test": "node --test *.test.js",
+    "warm-caches-quick": "node scripts/warm-caches.js --quick",
+    "warm-caches": "node scripts/warm-caches.js",
+    "purge-caches": "node scripts/purge-caches.js"
   },
   "author": "pifragile",
   "license": "ISC",

@@ -2,6 +2,9 @@
 
 // Cache warming / smoke test script.
 //
+// Strategy: recent data first across ALL communities, then work backwards.
+// This ensures the most-requested data is warm as quickly as possible.
+//
 // Usage:
 //   CI (forge admin session via SECRET_KEY):
 //     SECRET_KEY=ci-test-secret node scripts/warm-caches.js --quick
@@ -14,6 +17,8 @@
 // Exits 0 if all attempted endpoints succeed, 1 otherwise.
 
 import crypto from "crypto";
+import * as dotenv from "dotenv";
+dotenv.config();
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:8081";
 const QUICK = process.argv.includes("--quick");
@@ -130,63 +135,74 @@ async function main() {
     const now = Date.now();
     const oneYearAgo = now - 365 * 24 * 60 * 60 * 1000;
     const currentYear = new Date().getUTCFullYear();
+    // Years in reverse order: current year first, then backwards
     const years = QUICK
         ? [currentYear]
-        : Array.from({ length: currentYear - START_YEAR + 1 }, (_, i) => START_YEAR + i);
+        : Array.from({ length: currentYear - START_YEAR + 1 }, (_, i) => currentYear - i);
 
-    // ── per-community endpoints ────────────────────────────────────────
-    for (const { cid, name } of communities) {
-        console.log(`\n[${name} / ${cid}]`);
+    // ── Main loop: years (recent first) → communities → all endpoints ──
+    for (const y of years) {
+        console.log(`\n── Year ${y} ──`);
+        for (const { cid, name } of communities) {
+            console.log(`  [${name} / ${cid}]`);
 
-        // Public: treasury log
-        if (TREASURY_CIDS.has(cid)) {
-            await hit(
-                "community-treasury-log",
-                `/v1/accounting/community-treasury-log?cid=${cid}&start=${oneYearAgo}&end=${now}`
-            );
-        }
-
-        // DB-only, auth-required
-        if (authed) {
-            for (const y of years) {
+            // DB-only
+            if (authed) {
                 await hit(`volume-report ${y}`, `/v1/accounting/volume-report?cid=${cid}&year=${y}`);
                 await hit(`transaction-activity ${y}`, `/v1/accounting/transaction-activity?cid=${cid}&year=${y}`);
             }
-        }
 
-        if (QUICK) continue;
+            // Circularity + community-flow (only for current year to avoid repeats)
+            if (authed && y === currentYear) {
+                await hit(`circularity`, `/v1/accounting/circularity?cid=${cid}`, 600_000);
+                const m = new Date().getUTCMonth();
+                const sm = m >= 2 ? m - 2 : m + 10;
+                const sy = m >= 2 ? currentYear : currentYear - 1;
+                await hit(
+                    `community-flow range (recent)`,
+                    `/v1/accounting/community-flow?cid=${cid}&startYear=${sy}&startMonth=${sm}&endYear=${currentYear}&endMonth=${m}`,
+                    300_000
+                );
+            }
 
-        // RPC-heavy endpoints (skip in --quick mode)
-        await hit("rewards-data", `/v1/accounting/rewards-data?cid=${cid}`, 600_000);
+            // Treasury (not year-scoped, run once for current year)
+            if (y === currentYear && TREASURY_CIDS.has(cid)) {
+                await hit(
+                    "community-treasury-log",
+                    `/v1/accounting/community-treasury-log?cid=${cid}&start=${oneYearAgo}&end=${now}`
+                );
+            }
 
-        if (!authed) continue;
+            if (QUICK) continue;
 
-        for (const y of years) {
-            await hit(
-                `money-velocity ${y}`,
-                `/v1/accounting/money-velocity-report?cid=${cid}&year=${y}`,
-                600_000
-            );
-        }
-        await hit("reputables-by-cindex", `/v1/accounting/reputables-by-cindex?cid=${cid}`, 600_000);
-        await hit("frequency-of-attendance", `/v1/accounting/frequency-of-attendance?cid=${cid}`, 600_000);
-
-        for (const y of years) {
-            await hit(
-                `all-accounts-data ${y}`,
-                `/v1/accounting/all-accounts-data?cid=${cid}&year=${y}`,
-                600_000
-            );
+            // RPC-heavy (year-scoped)
+            if (y === currentYear) {
+                await hit("rewards-data", `/v1/accounting/rewards-data?cid=${cid}`, 600_000);
+            }
+            if (authed) {
+                // all-accounts-data must run before money-velocity
+                await hit(`all-accounts-data ${y}`, `/v1/accounting/all-accounts-data?cid=${cid}&year=${y}`, 600_000);
+                await hit(`money-velocity ${y}`, `/v1/accounting/money-velocity-report?cid=${cid}&year=${y}`, 600_000);
+            }
+            if (y === currentYear && authed) {
+                await hit("reputables-by-cindex", `/v1/accounting/reputables-by-cindex?cid=${cid}`, 600_000);
+                await hit("frequency-of-attendance", `/v1/accounting/frequency-of-attendance?cid=${cid}`, 600_000);
+            }
         }
     }
 
-    // ── faucet ──────────────────────────────────────────────────────────
+    if (QUICK) {
+        printSummary();
+        return;
+    }
+
+    // ── Faucet ──────────────────────────────────────────────────────
     if (authed) {
         console.log("\n[faucet]");
         await hit("faucet-drips", "/v1/faucet/drips");
     }
 
-    // ── account-specific endpoints (sample account, Leu) ──────────────
+    // ── Account-specific endpoints (sample account, Leu) ────
     console.log("\n[account-specific / sample]");
     await hit(
         "transaction-log",
@@ -197,7 +213,7 @@ async function main() {
         `/v1/accounting/native-transaction-log?start=${oneYearAgo}&end=${now}&account=${SAMPLE_ACCOUNT}`
     );
 
-    if (!QUICK && authed) {
+    if (authed) {
         await hit(
             "account-overview",
             `/v1/accounting/account-overview?cid=u0qj944rhWE&timestamp=${now}`,
@@ -210,7 +226,10 @@ async function main() {
         );
     }
 
-    // ── summary ────────────────────────────────────────────────────────
+    printSummary();
+}
+
+function printSummary() {
     console.log(`\n${"=".repeat(50)}`);
     console.log(`Results: ${passed} passed, ${failed} failed`);
     console.log("=".repeat(50));

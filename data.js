@@ -17,6 +17,7 @@ import {
     toNativeDecimal,
 } from "./util.js";
 import BN from "bn.js";
+import { computeCircularity } from "./circularity.js";
 
 function canBeCached(month, year) {
     return monthIsOver(month, year);
@@ -876,6 +877,167 @@ export async function getTransactionActivityLog(
         data.push(currentMonthData);
     }
     return data;
+}
+
+export async function getCommunityFlowData(cid, year, month) {
+    if (monthIsInFuture(month, year)) throw new Error("month is in future");
+
+    const cachedData = await db.getFromGeneralCache("communityFlow", {
+        cid,
+        year,
+        month,
+    });
+    if (cachedData.length === 1) return cachedData[0];
+
+    const start = getFirstTimeStampOfMonth(year, month);
+    const end = getLastTimeStampOfMonth(year, month);
+    const transfers = await getAllTransfers(start, end, cid);
+
+    // Aggregate by (sender, recipient) pair
+    const edgeMap = new Map();
+    const nodeIds = new Set();
+    for (const t of transfers) {
+        const sender = t.data[1];
+        const recipient = t.data[2];
+        const amount = t.data[3];
+        nodeIds.add(sender);
+        nodeIds.add(recipient);
+        const key = `${sender}|${recipient}`;
+        if (edgeMap.has(key)) {
+            const e = edgeMap.get(key);
+            e.amount += amount;
+            e.count += 1;
+        } else {
+            edgeMap.set(key, { source: sender, target: recipient, amount, count: 1 });
+        }
+    }
+
+    // Classify nodes
+    const [allUsers, apAddresses, voucherAddresses, govAddresses] =
+        await Promise.all([
+            db.getAllUsers(),
+            db.getAcceptancePointAddresses(cid),
+            db.getVoucherAddresses(cid),
+            db.getGovAddresses(cid),
+        ]);
+    const userMap = new Map(allUsers.map((u) => [u.address, u.name]));
+    const apSet = new Set(apAddresses);
+    const voucherSet = new Set(voucherAddresses);
+    const govSet = new Set(govAddresses);
+
+    const classifyType = (id) => {
+        if (apSet.has(id)) return "acceptancePoint";
+        if (voucherSet.has(id)) return "voucher";
+        if (govSet.has(id)) return "gov";
+        return "personal";
+    };
+
+    const nodes = [...nodeIds].map((id) => ({
+        id,
+        name: userMap.get(id) || id.slice(0, 8) + "...",
+        type: classifyType(id),
+    }));
+    const edges = [...edgeMap.values()];
+
+    const result = { nodes, edges };
+    if (canBeCached(month, year)) {
+        await db.insertIntoGeneralCache(
+            "communityFlow",
+            { cid, year, month },
+            result
+        );
+    }
+    return result;
+}
+
+export async function getCommunityFlowDataRange(cid, startYear, startMonth, endYear, endMonth) {
+    const allNodes = new Map();
+    const edgeMap = new Map();
+
+    let y = startYear;
+    let m = startMonth;
+    while (y < endYear || (y === endYear && m <= endMonth)) {
+        try {
+            const { nodes, edges } = await getCommunityFlowData(cid, y, m);
+            for (const node of nodes) {
+                if (!allNodes.has(node.id)) allNodes.set(node.id, node);
+            }
+            for (const edge of edges) {
+                const key = `${edge.source}|${edge.target}`;
+                if (edgeMap.has(key)) {
+                    const e = edgeMap.get(key);
+                    e.amount += edge.amount;
+                    e.count += edge.count;
+                } else {
+                    edgeMap.set(key, { ...edge });
+                }
+            }
+        } catch {
+            // month in future or no data — skip
+        }
+        m++;
+        if (m > 11) { m = 0; y++; }
+    }
+
+    return { nodes: [...allNodes.values()], edges: [...edgeMap.values()] };
+}
+
+export async function getCircularityTimeSeries(cid) {
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+    const startYear = 2022;
+    const startMonth = 5; // encointer started Jun 2022
+
+    const result = {};
+    let y = startYear;
+    let m = startMonth;
+
+    while (y < currentYear || (y === currentYear && m <= currentMonth)) {
+        const label = `${getMonthName(m).slice(0, 3)} ${y}`;
+
+        // Check cache for completed months
+        if (canBeCached(m, y)) {
+            const cached = await db.getFromGeneralCache("circularity_v3", { cid, year: y, month: m });
+            if (cached.length === 1 && cached[0].hasFlow !== false) {
+                result[label] = { ratio: cached[0].ratio, circularFlow: cached[0].circularFlow };
+                m++;
+                if (m > 11) { m = 0; y++; }
+                continue;
+            }
+        }
+
+        try {
+            // 3-month sliding window: current month + 2 prior
+            let wm = m - 2;
+            let wy = y;
+            if (wm < 0) { wm += 12; wy--; }
+            const { nodes, edges } = await getCommunityFlowDataRange(cid, wy, wm, y, m);
+            const totalFlow = edges.reduce((sum, e) => sum + e.amount, 0);
+            const hasFlow = totalFlow > 0;
+            const { ratio, circularFlow } = computeCircularity(nodes, edges);
+
+            // Only emit data points for periods with actual transfers
+            if (hasFlow) {
+                result[label] = { ratio, circularFlow };
+            }
+
+            if (canBeCached(m, y)) {
+                await db.insertIntoGeneralCache(
+                    "circularity_v3",
+                    { cid, year: y, month: m },
+                    { ratio, circularFlow, hasFlow }
+                );
+            }
+        } catch {
+            // skip months with no data
+        }
+
+        m++;
+        if (m > 11) { m = 0; y++; }
+    }
+
+    return result;
 }
 
 export async function getSankeyReport(
