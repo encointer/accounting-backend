@@ -1,25 +1,32 @@
 import express from "express";
-import { parseEncointerBalance } from "@encointer/types";
 import db from "../db.js";
 
 const governance = express.Router();
 
-const TERMINAL_STATES = new Set(["Enacted", "Approved", "Rejected"]);
-
-function isTerminal(state) {
-    if (typeof state === "string") return TERMINAL_STATES.has(state);
-    // { supersededBy: id } or { confirming: { since } }
-    if (typeof state === "object" && state !== null) {
-        return "supersededBy" in state;
-    }
-    return false;
+// State from .toJSON() is { variantName: null | data }, e.g. { enacted: null }
+function stateKey(state) {
+    if (typeof state === "string") return state.toLowerCase();
+    if (typeof state === "object" && state !== null) return Object.keys(state)[0];
+    return "";
 }
 
+const TERMINAL_KEYS = new Set(["enacted", "approved", "rejected", "supersededby", "supersededBy"]);
+
+function isTerminal(state) {
+    return TERMINAL_KEYS.has(stateKey(state));
+}
+
+const STATE_LABELS = {
+    enacted: "Enacted",
+    approved: "Approved",
+    rejected: "Rejected",
+    ongoing: "Ongoing",
+    confirming: "Confirming",
+    supersededBy: "SupersededBy",
+};
+
 function stateLabel(state) {
-    if (typeof state === "string") return state;
-    if (state?.supersededBy !== undefined) return "SupersededBy";
-    if (state?.confirming !== undefined) return "Confirming";
-    return "Unknown";
+    return STATE_LABELS[stateKey(state)] || stateKey(state) || "Unknown";
 }
 
 function actionSummary(action) {
@@ -28,7 +35,7 @@ function actionSummary(action) {
     const args = action[variant];
     switch (variant) {
         case "updateNominalIncome":
-            return `Update nominal income for ${cidShort(args[0])} to ${formatBalance(args[1])}`;
+            return `Update nominal income for ${cidShort(args[0])} to ${formatFixedPoint(args[1])}`;
         case "updateDemurrage":
             return `Update demurrage for ${cidShort(args[0])}`;
         case "addLocation":
@@ -42,9 +49,9 @@ function actionSummary(action) {
         case "petition":
             return `Petition: ${args[1] || ""}`.slice(0, 120);
         case "spendNative":
-            return `Spend ${formatBalance(args[2])} native to ${addrShort(args[1])}`;
+            return `Spend ${formatNativeBalance(args[2])} KSM to ${addrShort(args[1])}`;
         case "spendAsset":
-            return `Spend ${formatBalance(args[2])} asset to ${addrShort(args[1])}`;
+            return `Spend asset to ${addrShort(args[1])}`;
         case "issueSwapNativeOption":
             return `Issue swap native option for ${cidShort(args[0])}`;
         case "issueSwapAssetOption":
@@ -67,13 +74,20 @@ function addrShort(addr) {
     return String(addr).slice(0, 8) + "...";
 }
 
-function formatBalance(raw) {
+// FixedI64F64 { bits: i128 } — 64.64 fixed point (community currency amounts)
+function formatFixedPoint(raw) {
     if (raw === undefined || raw === null) return "?";
-    // NominalIncomeType wraps FixedI64F64 { bits: i128 }
-    if (typeof raw === "object" && raw.bits !== undefined) {
-        return parseEncointerBalance(raw.bits).toFixed(1);
-    }
-    return parseEncointerBalance(raw).toFixed(1);
+    const bits = typeof raw === "object" && raw.bits !== undefined ? raw.bits : raw;
+    const n = BigInt(bits);
+    const intPart = Number(n >> 64n);
+    const fracPart = Number(n & ((1n << 64n) - 1n)) / 2 ** 64;
+    return (intPart + fracPart).toFixed(1);
+}
+
+// Plain Balance u128 — 12 decimal places (KSM)
+function formatNativeBalance(raw) {
+    if (raw === undefined || raw === null) return "?";
+    return (Number(BigInt(raw)) / 1e12).toFixed(2);
 }
 
 function actionType(action) {
