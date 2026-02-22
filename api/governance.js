@@ -1,4 +1,5 @@
 import express from "express";
+import { parseEncointerBalance } from "@encointer/types";
 import db from "../db.js";
 
 const governance = express.Router();
@@ -68,11 +69,11 @@ function addrShort(addr) {
 
 function formatBalance(raw) {
     if (raw === undefined || raw === null) return "?";
-    // NominalIncomeType is i128 with 18-decimal fixed point (BalanceType)
-    const n = typeof raw === "string" ? BigInt(raw) : BigInt(raw);
-    const whole = n / BigInt(1e12);
-    const frac = Number(n % BigInt(1e12)) / 1e12;
-    return (Number(whole) + frac).toFixed(1);
+    // NominalIncomeType wraps FixedI64F64 { bits: i128 }
+    if (typeof raw === "object" && raw.bits !== undefined) {
+        return parseEncointerBalance(raw.bits).toFixed(1);
+    }
+    return parseEncointerBalance(raw).toFixed(1);
 }
 
 function actionType(action) {
