@@ -95,6 +95,18 @@ function actionType(action) {
     return Object.keys(action)[0];
 }
 
+// Extract community identifier string from action, or null for global actions
+function actionCommunityId(action) {
+    if (!action || typeof action !== "object") return null;
+    const variant = Object.keys(action)[0];
+    const args = action[variant];
+    if (variant === "setInactivityTimeout") return null;
+    // First arg is CommunityIdentifier or Option<CommunityIdentifier>
+    const cid = Array.isArray(args) ? args[0] : args;
+    if (!cid || typeof cid !== "object" || !cid.geohash) return null;
+    return `${cid.geohash}:${cid.digest}`;
+}
+
 /**
  * @swagger
  * /v1/governance/proposals:
@@ -160,6 +172,7 @@ governance.get("/proposals", async function (req, res, next) {
                 startCindex: proposal.startCindex || proposal.start_cindex,
                 actionType: actionType(proposal.action),
                 actionSummary: actionSummary(proposal.action),
+                communityId: actionCommunityId(proposal.action),
                 state: stateLabel(state),
                 electorateSize: electorate,
                 turnout,
