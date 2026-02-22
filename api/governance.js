@@ -1,4 +1,5 @@
 import express from "express";
+import base58 from "bs58";
 import db from "../db.js";
 
 const governance = express.Router();
@@ -35,43 +36,54 @@ function actionSummary(action) {
     const args = action[variant];
     switch (variant) {
         case "updateNominalIncome":
-            return `Update nominal income for ${cidShort(args[0])} to ${formatFixedPoint(args[1])}`;
+            return `Update nominal income for ${formatCid(args[0])} to ${formatFixedPoint(args[1])}`;
         case "updateDemurrage":
-            return `Update demurrage for ${cidShort(args[0])}`;
+            return `Update demurrage for ${formatCid(args[0])}`;
         case "addLocation":
-            return `Add location to ${cidShort(args[0])}`;
+            return `Add location to ${formatCid(args[0])}`;
         case "removeLocation":
-            return `Remove location from ${cidShort(args[0])}`;
+            return `Remove location from ${formatCid(args[0])}`;
         case "updateCommunityMetadata":
-            return `Update metadata for ${cidShort(args[0])}`;
+            return `Update metadata for ${formatCid(args[0])}`;
         case "setInactivityTimeout":
             return `Set inactivity timeout to ${args}`;
         case "petition":
-            return `Petition: ${args[1] || ""}`.slice(0, 120);
+            return `Petition: ${decodeText(args[1])}`.slice(0, 200);
         case "spendNative":
             return `Spend ${formatNativeBalance(args[2])} KSM to ${addrShort(args[1])}`;
         case "spendAsset":
             return `Spend asset to ${addrShort(args[1])}`;
         case "issueSwapNativeOption":
-            return `Issue swap native option for ${cidShort(args[0])}`;
+            return `Issue swap native option for ${formatCid(args[0])}`;
         case "issueSwapAssetOption":
-            return `Issue swap asset option for ${cidShort(args[0])}`;
+            return `Issue swap asset option for ${formatCid(args[0])}`;
         default:
             return variant;
     }
 }
 
-function cidShort(cid) {
-    if (!cid) return "?";
-    if (typeof cid === "string") return cid.slice(0, 10);
-    // { geohash, digest } — hex-encoded
-    const geo = cid.geohash || cid.Geohash || "";
-    return typeof geo === "string" ? geo.slice(0, 12) : JSON.stringify(cid).slice(0, 20);
+// Convert { geohash: "0x...", digest: "0x..." } to human-readable CID string
+function formatCid(cid) {
+    if (!cid || typeof cid !== "object") return cid ? String(cid) : "?";
+    const geoHex = (cid.geohash || "").replace(/^0x/, "");
+    const digestHex = (cid.digest || "").replace(/^0x/, "");
+    const geohash = Buffer.from(geoHex, "hex").toString("ascii");
+    const digest = base58.encode(Buffer.from(digestHex, "hex"));
+    return geohash + digest;
 }
 
 function addrShort(addr) {
     if (!addr) return "?";
     return String(addr).slice(0, 8) + "...";
+}
+
+// Decode PalletString (Text) — may be hex-encoded or plain string
+function decodeText(raw) {
+    if (!raw) return "";
+    if (typeof raw === "string" && raw.startsWith("0x")) {
+        return Buffer.from(raw.slice(2), "hex").toString("utf8");
+    }
+    return String(raw);
 }
 
 // FixedI64F64 { bits: i128 } — 64.64 fixed point (community currency amounts)
@@ -104,7 +116,7 @@ function actionCommunityId(action) {
     // First arg is CommunityIdentifier or Option<CommunityIdentifier>
     const cid = Array.isArray(args) ? args[0] : args;
     if (!cid || typeof cid !== "object" || !cid.geohash) return null;
-    return `${cid.geohash}:${cid.digest}`;
+    return formatCid(cid);
 }
 
 /**
