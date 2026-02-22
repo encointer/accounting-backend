@@ -30,21 +30,25 @@ function stateLabel(state) {
     return STATE_LABELS[stateKey(state)] || stateKey(state) || "Unknown";
 }
 
-function actionSummary(action) {
+function actionSummary(action, cidNameMap) {
     if (!action || typeof action !== "object") return String(action);
     const variant = Object.keys(action)[0];
     const args = action[variant];
+    const cn = (cidObj) => {
+        const cid = formatCid(cidObj);
+        return cidNameMap[cid] || cid;
+    };
     switch (variant) {
         case "updateNominalIncome":
-            return `Update nominal income for ${formatCid(args[0])} to ${formatFixedPoint(args[1])}`;
+            return `Update nominal income for ${cn(args[0])} to ${formatFixedPoint(args[1])}`;
         case "updateDemurrage":
-            return `Update demurrage for ${formatCid(args[0])}`;
+            return `Update demurrage for ${cn(args[0])}`;
         case "addLocation":
-            return `Add location to ${formatCid(args[0])}`;
+            return `Add location to ${cn(args[0])}`;
         case "removeLocation":
-            return `Remove location from ${formatCid(args[0])}`;
+            return `Remove location from ${cn(args[0])}`;
         case "updateCommunityMetadata":
-            return `Update metadata for ${formatCid(args[0])}`;
+            return `Update metadata for ${cn(args[0])}`;
         case "setInactivityTimeout":
             return `Set inactivity timeout to ${args}`;
         case "petition":
@@ -54,9 +58,9 @@ function actionSummary(action) {
         case "spendAsset":
             return `Spend asset to ${addrShort(args[1])}`;
         case "issueSwapNativeOption":
-            return `Issue swap native option for ${formatCid(args[0])}`;
+            return `Issue swap native option for ${cn(args[0])}`;
         case "issueSwapAssetOption":
-            return `Issue swap asset option for ${formatCid(args[0])}`;
+            return `Issue swap asset option for ${cn(args[0])}`;
         default:
             return variant;
     }
@@ -141,6 +145,13 @@ governance.get("/proposals", async function (req, res, next) {
         const confirmationPeriod =
             api.consts.encointerDemocracy.confirmationPeriod?.toJSON();
 
+        // Build CID → community name lookup
+        const allCommunities = await db.getAllCommunities();
+        const cidNameMap = {};
+        for (const c of allCommunities) {
+            cidNameMap[c.cid] = c.name;
+        }
+
         const results = [];
 
         for (let id = 1; id <= proposalCount; id++) {
@@ -183,8 +194,9 @@ governance.get("/proposals", async function (req, res, next) {
                 start: proposal.start || proposal.startMoment,
                 startCindex: proposal.startCindex || proposal.start_cindex,
                 actionType: actionType(proposal.action),
-                actionSummary: actionSummary(proposal.action),
+                actionSummary: actionSummary(proposal.action, cidNameMap),
                 communityId: actionCommunityId(proposal.action),
+                communityName: cidNameMap[actionCommunityId(proposal.action)] || null,
                 state: stateLabel(state),
                 electorateSize: electorate,
                 turnout,
