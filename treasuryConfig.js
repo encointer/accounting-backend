@@ -53,14 +53,14 @@ export function getAssetNameAndDecimals(assetId) {
         if (JSON.stringify(info.assetId) === JSON.stringify(assetId)) {
             return { name, decimals: info.decimals };
         }
+        const configX4 = info.assetId?.V5?.assetId?.interior?.X4;
+        const inputX4 = assetId?.V5?.assetId?.interior?.X4 || assetId?.interior?.X4;
         if (
-            info.assetId?.V5?.assetId?.interior?.X4 &&
-            assetId?.interior?.X4 &&
-            Array.isArray(info.assetId.V5.assetId.interior.X4) &&
-            Array.isArray(assetId.interior.X4)
+            configX4 && inputX4 &&
+            Array.isArray(configX4) && Array.isArray(inputX4)
         ) {
-            const x4A = info.assetId.V5.assetId.interior.X4[0];
-            const x4B = assetId.interior.X4[0];
+            const x4A = configX4[0];
+            const x4B = inputX4[0];
             // Allow { GlobalConsensus: 'Polkadot' } to match { GlobalConsensus: { Polkadot: null } }
             if (
                 x4A?.GlobalConsensus &&
@@ -72,9 +72,8 @@ export function getAssetNameAndDecimals(assetId) {
                         x4B.GlobalConsensus.Polkadot === null &&
                         x4A.GlobalConsensus === "Polkadot"))
             ) {
-                // Compare the rest of the array
-                const restA = info.assetId.V5.assetId.interior.X4.slice(1);
-                const restB = assetId.interior.X4.slice(1);
+                const restA = configX4.slice(1);
+                const restB = inputX4.slice(1);
                 if (JSON.stringify(restA) === JSON.stringify(restB)) {
                     return { name, decimals: info.decimals };
                 }
