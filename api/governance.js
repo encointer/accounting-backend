@@ -288,4 +288,122 @@ governance.get("/vote-timing", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/governance/voting-power-analysis:
+ *   get:
+ *     description: Per-proposal voting power distributions for voters and electorate
+ *     tags:
+ *       - governance
+ *     responses:
+ *       '200':
+ *         description: Per-proposal votersByPower and electorateByPower
+ */
+governance.get("/voting-power-analysis", async function (req, res, next) {
+    try {
+        const api = req.app.get("api");
+        const REPUTATION_LIFETIME =
+            api.consts.encointerCeremonies?.reputationLifetime?.toJSON() || 5;
+
+        // 1. Proposals: need {id, startCindex, communityId}
+        const proposalCount =
+            (await api.query.encointerDemocracy.proposalCount()).toJSON() || 0;
+        const allCommunities = await db.getAllCommunities();
+        const cidNameMap = {};
+        for (const c of allCommunities) cidNameMap[c.cid] = c.name;
+
+        const proposals = [];
+        for (let id = 1; id <= proposalCount; id++) {
+            const cached = await db.getFromGeneralCache("governance-proposal", { id });
+            if (cached.length > 0) {
+                const c = cached[0];
+                proposals.push({ id: c.id, startCindex: c.startCindex, communityId: c.communityId });
+                continue;
+            }
+            const proposalRaw = await api.query.encointerDemocracy.proposals(id);
+            if (proposalRaw.isNone) continue;
+            const p = proposalRaw.toJSON();
+            proposals.push({
+                id,
+                startCindex: p.startCindex || p.start_cindex,
+                communityId: actionCommunityId(p.action),
+            });
+        }
+
+        // 2. VotePlaced events joined with vote extrinsics for voter identity
+        const [votePlaced, issuedEvents] = await Promise.all([
+            db.events.find({ section: "encointerDemocracy", method: "VotePlaced" }).toArray(),
+            db.events.find({ section: "encointerBalances", method: "Issued" }).toArray(),
+        ]);
+
+        const extIds = votePlaced.map((v) => v.extrinsicId);
+        const extrinsics = await db.extrinsics.find({ _id: { $in: extIds } }).toArray();
+        const extMap = new Map(extrinsics.map((e) => [e._id, e]));
+
+        const votesByProposal = new Map();
+        for (const v of votePlaced) {
+            const ext = extMap.get(v.extrinsicId);
+            if (!ext) continue;
+            const pid = v.data?.proposalId ?? v.data?.[0];
+            const numVotes = v.data?.numVotes ?? v.data?.[2];
+            const voter = ext.signer?.Id;
+            if (!pid || !voter || !numVotes) continue;
+            if (!votesByProposal.has(pid)) votesByProposal.set(pid, []);
+            votesByProposal.get(pid).push({ voter, numVotes });
+        }
+
+        // 3. Issued events (UBI = successful ceremony) → cindex via blocks
+        const blockNums = [...new Set(issuedEvents.map((e) => e.blockNumber))];
+        const blocks = await db.blocks
+            .find({ height: { $in: blockNums } }, { projection: { height: 1, cindex: 1 } })
+            .toArray();
+        const blockCindex = new Map(blocks.map((b) => [b.height, b.cindex]));
+
+        const issuances = [];
+        for (const e of issuedEvents) {
+            const cindex = blockCindex.get(e.blockNumber);
+            if (cindex == null) continue;
+            issuances.push({ account: e.data[1], cindex });
+        }
+
+        // 4. Per-proposal: electorate and voter distributions by power level
+        const result = [];
+        for (const proposal of proposals) {
+            if (!proposal.startCindex) continue;
+            const minCi = proposal.startCindex - REPUTATION_LIFETIME + 1;
+            const maxCi = proposal.startCindex;
+
+            // Electorate: each Issued event in valid cindex range = one reputation
+            const accountPower = new Map();
+            for (const iss of issuances) {
+                if (iss.cindex >= minCi && iss.cindex <= maxCi) {
+                    accountPower.set(iss.account, (accountPower.get(iss.account) || 0) + 1);
+                }
+            }
+            const electorateByPower = {};
+            for (const [, power] of accountPower) {
+                electorateByPower[power] = (electorateByPower[power] || 0) + 1;
+            }
+
+            // Voters
+            const votes = votesByProposal.get(proposal.id) || [];
+            const votersByPower = {};
+            for (const v of votes) {
+                votersByPower[v.numVotes] = (votersByPower[v.numVotes] || 0) + 1;
+            }
+
+            result.push({
+                id: proposal.id,
+                communityId: proposal.communityId,
+                votersByPower,
+                electorateByPower,
+            });
+        }
+
+        res.send(JSON.stringify({ proposals: result, reputationLifetime: REPUTATION_LIFETIME }));
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default governance;
