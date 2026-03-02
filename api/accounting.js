@@ -1082,6 +1082,26 @@ accounting.get("/sankey-report", async function (req, res, next) {
  *          '200':
  *              description: Success
  */
+// Parse on-chain integer values that may be comma-formatted strings, plain numbers, or hex
+function parseChainInt(val) {
+    if (val == null) return 0;
+    if (typeof val === "number") return val;
+    if (typeof val === "bigint") return Number(val);
+    if (typeof val === "string") return parseInt(val.replace(/,/g, ""), 10) || 0;
+    return 0;
+}
+
+// Parse FixedI64F64 { bits: i128 } → float
+function parseFixedI64F64(val) {
+    if (val == null) return null;
+    const bits = typeof val === "object" && val.bits !== undefined ? val.bits : val;
+    if (bits == null) return null;
+    const n = BigInt(typeof bits === "string" ? bits.replace(/,/g, "") : bits);
+    const intPart = Number(n >> 64n);
+    const fracPart = Number(n & ((1n << 64n) - 1n)) / 2 ** 64;
+    return intPart + fracPart;
+}
+
 accounting.get("/swap-option-analysis", async function (req, res, next) {
     try {
         const api = req.app.get("api");
@@ -1130,7 +1150,7 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
 
         // --- USDC balance ---
         const usdcBalance = usdcAccountRaw?.balance
-            ? Number(BigInt(usdcAccountRaw.balance)) / Math.pow(10, USDC_DECIMALS)
+            ? parseChainInt(usdcAccountRaw.balance) / Math.pow(10, USDC_DECIMALS)
             : 0;
 
         // --- Active on-chain swap options ---
@@ -1140,9 +1160,9 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
             return {
                 beneficiary: keyArgs[1],
                 remainingAllowance: option.nativeAllowance != null
-                    ? Number(BigInt(option.nativeAllowance)) / 1e12
+                    ? parseChainInt(option.nativeAllowance) / 1e12
                     : null,
-                rate: option.rate != null ? Number(BigInt(option.rate)) / 1e12 : null,
+                rate: parseFixedI64F64(option.rate),
                 doBurn: option.doBurn ?? null,
                 validFrom: option.validFrom ?? null,
                 validUntil: option.validUntil ?? null,
@@ -1155,9 +1175,9 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
             return {
                 beneficiary: keyArgs[1],
                 remainingAllowance: option.assetAllowance != null
-                    ? Number(BigInt(option.assetAllowance)) / Math.pow(10, USDC_DECIMALS)
+                    ? parseChainInt(option.assetAllowance) / Math.pow(10, USDC_DECIMALS)
                     : null,
-                rate: option.rate != null ? Number(BigInt(option.rate)) / 1e12 : null,
+                rate: parseFixedI64F64(option.rate),
                 doBurn: option.doBurn ?? null,
                 validFrom: option.validFrom ?? null,
                 validUntil: option.validUntil ?? null,
@@ -1179,13 +1199,34 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
                 const c = cached[0];
                 if (c.communityId !== cid) continue;
                 if (c.actionType !== "issueSwapNativeOption" && c.actionType !== "issueSwapAssetOption") continue;
-                // For cached terminal proposals, we still push them with their cached data
+                // Fetch on-chain data to get action details (beneficiary, allowance, rate)
+                const proposalRawCached = await api.query.encointerDemocracy.proposals(id);
+                let beneficiary = null, allowance = null, rate = null, doBurn = null, validFrom = null, validUntil = null;
+                if (proposalRawCached.isSome) {
+                    const pCached = proposalRawCached.toJSON();
+                    const args = pCached.action[c.actionType];
+                    if (args) {
+                        beneficiary = args[1];
+                        const optionData = args[2];
+                        const isNative = c.actionType === "issueSwapNativeOption";
+                        const decimals = isNative ? 12 : USDC_DECIMALS;
+                        const allowanceKey = isNative ? "nativeAllowance" : "assetAllowance";
+                        allowance = optionData?.[allowanceKey] != null
+                            ? parseChainInt(optionData[allowanceKey]) / Math.pow(10, decimals)
+                            : null;
+                        rate = parseFixedI64F64(optionData?.rate);
+                        doBurn = optionData?.doBurn ?? null;
+                        validFrom = optionData?.validFrom ?? null;
+                        validUntil = optionData?.validUntil ?? null;
+                    }
+                }
                 const entry = {
                     id: c.id,
                     state: c.state,
                     passing: c.passing,
                     actionType: c.actionType,
                     actionSummary: c.actionSummary,
+                    beneficiary, allowance, rate, doBurn, validFrom, validUntil,
                 };
                 if (c.actionType === "issueSwapNativeOption") nativeProposals.push(entry);
                 else assetProposals.push(entry);
@@ -1255,7 +1296,7 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
             const decimals = isNative ? 12 : USDC_DECIMALS;
             const allowanceKey = isNative ? "nativeAllowance" : "assetAllowance";
             const allowance = optionData?.[allowanceKey] != null
-                ? Number(BigInt(optionData[allowanceKey])) / Math.pow(10, decimals)
+                ? parseChainInt(optionData[allowanceKey]) / Math.pow(10, decimals)
                 : null;
 
             const entry = {
@@ -1263,7 +1304,7 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
                 state: sLabel,
                 beneficiary,
                 allowance,
-                rate: optionData?.rate != null ? Number(BigInt(optionData.rate)) / 1e12 : null,
+                rate: parseFixedI64F64(optionData?.rate),
                 doBurn: optionData?.doBurn ?? null,
                 validFrom: optionData?.validFrom ?? null,
                 validUntil: optionData?.validUntil ?? null,
