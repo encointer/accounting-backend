@@ -312,6 +312,20 @@ class Database {
         return correspondingBurn;
     }
 
+    async getSwapOptionEvents(treasury, start, end) {
+        return this.events
+            .find(
+                {
+                    section: "encointerTreasuries",
+                    method: { $in: ["GrantedSwapNativeOption", "GrantedSwapAssetOption"] },
+                    "data.treasury": treasury,
+                    timestamp: { $gte: start, $lte: end },
+                },
+                { sort: { timestamp: 1 } }
+            )
+            .toArray();
+    }
+
     async incomingTreasuryTxns(treasury, treasuryKAH, start, end) {
         const [incoming, incomingNative] = await Promise.all([
             this.indexerAssetHub

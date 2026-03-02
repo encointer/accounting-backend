@@ -91,3 +91,17 @@ export function getTreasuryByCid(cid) {
     }
     return null;
 }
+
+// Foreign asset ID for querying Asset Hub foreignAssets pallet
+export const USDC_FOREIGN_ASSET_ID = {
+    parents: 2,
+    interior: {
+        X4: [
+            { GlobalConsensus: "Polkadot" },
+            { Parachain: 1000 },
+            { PalletInstance: 50 },
+            { GeneralIndex: 1337 },
+        ],
+    },
+};
+export const USDC_DECIMALS = 6;

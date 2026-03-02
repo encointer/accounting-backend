@@ -49,8 +49,12 @@ async function main() {
         types: typesBundle.types[0].types,
     });
 
+    const assetHubProvider = new WsProvider("wss://kusama-asset-hub-rpc.polkadot.io");
+    const assetHubApi = await ApiPromise.create({ provider: assetHubProvider });
+
     const app = express();
     app.set("api", api);
+    app.set("assetHubApi", assetHubApi);
     app.use(function (req, res, next) {
         console.log("Received new request:", req.url, "from:", req.headers.origin);
         var send = res.send;
