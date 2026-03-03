@@ -23,6 +23,7 @@ import {
     gatherTransactionData,
     getBlockNumberByTimestamp,
     getAllTransfers,
+    getAllIssues,
 } from "../graphQl.js";
 import { computePerNodeCircularity } from "../circularity.js";
 import db from "../db.js";
@@ -1379,7 +1380,10 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
             const now = new Date();
             const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
             const threeMonthsStart = new Date(now.getFullYear(), now.getMonth() - 3, 1).getTime();
-            const allTimeCCTransfers = await getAllTransfers(0, Date.now(), cid);
+            const [allTimeCCTransfers, allIssues] = await Promise.all([
+                getAllTransfers(0, Date.now(), cid),
+                getAllIssues(cid),
+            ]);
 
             // Build per-account influx/outflow from CC transfers
             const influxCurrentMonth = new Map();
@@ -1407,6 +1411,14 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
                 } else {
                     edgeMap.set(key, { source: sender, target: recipient, amount });
                 }
+            }
+
+            // Ceremony issuance (UBI) per account — all-time
+            const ceremonyIssuance = new Map();
+            for (const iss of allIssues) {
+                const account = iss.data[1];
+                const amount = iss.data[2];
+                ceremonyIssuance.set(account, (ceremonyIssuance.get(account) || 0) + amount);
             }
 
             // Compute per-node circularity
@@ -1462,6 +1474,7 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
                     ccInfluxCurrentMonth: influxCurrentMonth.get(addr) || 0,
                     ccInflux3m: influx3m.get(addr) || 0,
                     ccInfluxOlder: influxOlder.get(addr) || 0,
+                    ccCeremonyIssuance: ceremonyIssuance.get(addr) || 0,
                     ccOutflow: circ,
                 };
             });
