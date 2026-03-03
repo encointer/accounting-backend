@@ -1375,14 +1375,16 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
             const allUsers = await db.getAllUsers();
             const userMap = new Map(allUsers.map((u) => [u.address, u.name]));
 
-            // CC transfers: last 3 months and all-time
-            const now = Date.now();
-            const threeMonthsAgo = now - 90 * 86400000;
-            const allTimeCCTransfers = await getAllTransfers(0, now, cid);
+            // CC transfers bucketed by calendar month boundaries
+            const now = new Date();
+            const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const threeMonthsStart = new Date(now.getFullYear(), now.getMonth() - 3, 1).getTime();
+            const allTimeCCTransfers = await getAllTransfers(0, Date.now(), cid);
 
             // Build per-account influx/outflow from CC transfers
-            const influxAllTime = new Map();
-            const influxRecent = new Map();
+            const influxCurrentMonth = new Map();
+            const influx3m = new Map();
+            const influxOlder = new Map();
             const edgeMap = new Map();
             const nodeIds = new Set();
             for (const t of allTimeCCTransfers) {
@@ -1391,9 +1393,12 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
                 const amount = t.data[3];
                 nodeIds.add(sender);
                 nodeIds.add(recipient);
-                influxAllTime.set(recipient, (influxAllTime.get(recipient) || 0) + amount);
-                if (t.timestamp >= threeMonthsAgo) {
-                    influxRecent.set(recipient, (influxRecent.get(recipient) || 0) + amount);
+                if (t.timestamp >= currentMonthStart) {
+                    influxCurrentMonth.set(recipient, (influxCurrentMonth.get(recipient) || 0) + amount);
+                } else if (t.timestamp >= threeMonthsStart) {
+                    influx3m.set(recipient, (influx3m.get(recipient) || 0) + amount);
+                } else {
+                    influxOlder.set(recipient, (influxOlder.get(recipient) || 0) + amount);
                 }
                 // Aggregate edges for circularity
                 const key = `${sender}|${recipient}`;
@@ -1454,8 +1459,9 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
                             proposed: proposedAssetAmt,
                         },
                     },
-                    ccInflux3m: influxRecent.get(addr) || 0,
-                    ccInfluxAllTime: influxAllTime.get(addr) || 0,
+                    ccInfluxCurrentMonth: influxCurrentMonth.get(addr) || 0,
+                    ccInflux3m: influx3m.get(addr) || 0,
+                    ccInfluxOlder: influxOlder.get(addr) || 0,
                     ccOutflow: circ,
                 };
             });
