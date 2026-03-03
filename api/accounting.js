@@ -22,14 +22,25 @@ import {
     gatherNativeTransactionData,
     gatherTransactionData,
     getBlockNumberByTimestamp,
+    getAllTransfers,
+    getAllIssues,
 } from "../graphQl.js";
+import { computePerNodeCircularity } from "../circularity.js";
 import db from "../db.js";
 import { parseCid, reduceObjects } from "../util.js";
 import {
     getAssetNameAndDecimals,
     getTreasuryByCid,
     getTreasuryName,
+    USDC_FOREIGN_ASSET_ID,
+    USDC_DECIMALS,
 } from "../treasuryConfig.js";
+import {
+    actionType,
+    actionCommunityId,
+    stateLabel,
+    isTerminal,
+} from "./governanceHelpers.js";
 
 const accounting = express.Router();
 
@@ -1051,6 +1062,442 @@ accounting.get("/sankey-report", async function (req, res, next) {
                 accountName,
             })
         );
+    } catch (e) {
+        next(e);
+    }
+});
+
+/**
+ * @swagger
+ * /v1/accounting/swap-option-analysis:
+ *   get:
+ *     description: Retrieve swap option analysis for a community treasury
+ *     parameters:
+ *       - in: query
+ *         name: cid
+ *         required: true
+ *         description: Base58 encoded CommunityIdentifier, eg. u0qj944rhWE
+ *         schema:
+ *           type: string
+ *     tags:
+ *       - accounting
+ *     responses:
+ *          '200':
+ *              description: Success
+ */
+// Parse on-chain integer values that may be comma-formatted strings, plain numbers, or hex
+function parseChainInt(val) {
+    if (val == null) return 0;
+    if (typeof val === "number") return val;
+    if (typeof val === "bigint") return Number(val);
+    if (typeof val === "string") return parseInt(val.replace(/,/g, ""), 10) || 0;
+    return 0;
+}
+
+// Parse FixedI64F64 { bits: i128 } → float
+function parseFixedI64F64(val) {
+    if (val == null) return null;
+    const bits = typeof val === "object" && val.bits !== undefined ? val.bits : val;
+    if (bits == null) return null;
+    const n = BigInt(typeof bits === "string" ? bits.replace(/,/g, "") : bits);
+    const intPart = Number(n >> 64n);
+    const fracPart = Number(n & ((1n << 64n) - 1n)) / 2 ** 64;
+    return intPart + fracPart;
+}
+
+accounting.get("/swap-option-analysis", async function (req, res, next) {
+    try {
+        const api = req.app.get("api");
+        const assetHubApi = req.app.get("assetHubApi");
+        const cid = req.query.cid;
+
+        const treasury = getTreasuryByCid(cid);
+        if (!treasury) {
+            res.status(400).send(JSON.stringify({ error: `No treasury configured for cid ${cid}` }));
+            return;
+        }
+
+        const cidDecoded = parseCid(cid);
+
+        // --- Balances, on-chain swap options, proposals, events, scheduler in parallel ---
+        const [
+            accountInfo,
+            usdcAccountRaw,
+            nativeOptionsRaw,
+            assetOptionsRaw,
+            proposalCount,
+            /* currentPhase */ ,
+            nextPhaseTimestampRaw,
+            spends,
+            incoming,
+            swapOptionEvents,
+        ] = await Promise.all([
+            api.query.system.account(treasury.address),
+            treasury.kahAccount && assetHubApi
+                ? assetHubApi.query.foreignAssets.account(USDC_FOREIGN_ASSET_ID, treasury.kahAccount)
+                    .then((r) => r.toJSON())
+                    .catch(() => null)
+                : Promise.resolve(null),
+            api.query.encointerTreasuries.swapNativeOptions.entries(cidDecoded).catch(() => []),
+            api.query.encointerTreasuries.swapAssetOptions.entries(cidDecoded).catch(() => []),
+            api.query.encointerDemocracy.proposalCount().then((c) => c.toJSON() || 0),
+            api.query.encointerScheduler.currentPhase().then((p) => p.toJSON()),
+            api.query.encointerScheduler.nextPhaseTimestamp().then((t) => t.toJSON()),
+            db.getTreasurySpendsByTreasury(treasury.address, 0, Date.now()),
+            db.incomingTreasuryTxns(treasury.address, treasury.kahAccount, 0, Date.now()),
+            db.getSwapOptionEvents(treasury.address, 0, Date.now()),
+        ]);
+
+        // --- KSM balance ---
+        const ksmBalance = Number(accountInfo.data.free.toBigInt()) / 1e12;
+
+        // --- USDC balance ---
+        const usdcBalance = usdcAccountRaw?.balance
+            ? parseChainInt(usdcAccountRaw.balance) / Math.pow(10, USDC_DECIMALS)
+            : 0;
+
+        // --- Active on-chain swap options ---
+        const activeNativeOptions = nativeOptionsRaw.map(([key, val]) => {
+            const option = val.toJSON();
+            const keyArgs = key.args.map((a) => a.toJSON());
+            return {
+                beneficiary: keyArgs[1],
+                remainingAllowance: option.nativeAllowance != null
+                    ? parseChainInt(option.nativeAllowance) / 1e12
+                    : null,
+                rate: parseFixedI64F64(option.rate),
+                doBurn: option.doBurn ?? null,
+                validFrom: option.validFrom ?? null,
+                validUntil: option.validUntil ?? null,
+            };
+        });
+
+        const activeAssetOptions = assetOptionsRaw.map(([key, val]) => {
+            const option = val.toJSON();
+            const keyArgs = key.args.map((a) => a.toJSON());
+            return {
+                beneficiary: keyArgs[1],
+                remainingAllowance: option.assetAllowance != null
+                    ? parseChainInt(option.assetAllowance) / Math.pow(10, USDC_DECIMALS)
+                    : null,
+                rate: parseFixedI64F64(option.rate),
+                doBurn: option.doBurn ?? null,
+                validFrom: option.validFrom ?? null,
+                validUntil: option.validUntil ?? null,
+            };
+        });
+
+        // --- Proposals (swap options only, for this community) ---
+        const allCommunities = await db.getAllCommunities();
+        const cidNameMap = {};
+        for (const c of allCommunities) cidNameMap[c.cid] = c.name;
+
+        const nativeProposals = [];
+        const assetProposals = [];
+
+        for (let id = 1; id <= proposalCount; id++) {
+            const cached = await db.getFromGeneralCache("governance-proposal", { id });
+            let proposal, state;
+            if (cached.length > 0) {
+                const c = cached[0];
+                if (c.communityId !== cid) continue;
+                if (c.actionType !== "issueSwapNativeOption" && c.actionType !== "issueSwapAssetOption") continue;
+                // Fetch on-chain data to get action details (beneficiary, allowance, rate)
+                const proposalRawCached = await api.query.encointerDemocracy.proposals(id);
+                let beneficiary = null, allowance = null, rate = null, doBurn = null, validFrom = null, validUntil = null;
+                if (proposalRawCached.isSome) {
+                    const pCached = proposalRawCached.toJSON();
+                    const args = pCached.action[c.actionType];
+                    if (args) {
+                        beneficiary = args[1];
+                        const optionData = args[2];
+                        const isNative = c.actionType === "issueSwapNativeOption";
+                        const decimals = isNative ? 12 : USDC_DECIMALS;
+                        const allowanceKey = isNative ? "nativeAllowance" : "assetAllowance";
+                        allowance = optionData?.[allowanceKey] != null
+                            ? parseChainInt(optionData[allowanceKey]) / Math.pow(10, decimals)
+                            : null;
+                        rate = parseFixedI64F64(optionData?.rate);
+                        doBurn = optionData?.doBurn ?? null;
+                        validFrom = optionData?.validFrom ?? null;
+                        validUntil = optionData?.validUntil ?? null;
+                    }
+                }
+                const entry = {
+                    id: c.id,
+                    state: c.state,
+                    passing: c.passing,
+                    actionType: c.actionType,
+                    actionSummary: c.actionSummary,
+                    beneficiary, allowance, rate, doBurn, validFrom, validUntil,
+                };
+                if (c.actionType === "issueSwapNativeOption") nativeProposals.push(entry);
+                else assetProposals.push(entry);
+                continue;
+            }
+
+            const proposalRaw = await api.query.encointerDemocracy.proposals(id);
+            if (proposalRaw.isNone) continue;
+            proposal = proposalRaw.toJSON();
+            state = proposal.state;
+            const aType = actionType(proposal.action);
+            if (aType !== "issueSwapNativeOption" && aType !== "issueSwapAssetOption") continue;
+            if (actionCommunityId(proposal.action) !== cid) continue;
+
+            const args = proposal.action[aType];
+            const beneficiary = args[1];
+            const optionData = args[2];
+
+            const sLabel = stateLabel(state);
+
+            // Cache terminal proposals (same as governance.js)
+            if (isTerminal(state)) {
+                const tallyRaw = await api.query.encointerDemocracy.tallies(id);
+                const tally = tallyRaw.isSome ? tallyRaw.toJSON() : { turnout: 0, ayes: 0 };
+                const electorate = proposal.electorateSize || proposal.electorate_size || 0;
+                const turnout = tally.turnout || 0;
+                const ayes = tally.ayes || 0;
+                const turnoutPct = electorate > 0 ? (turnout / electorate) * 100 : 0;
+                const approvalPct = turnout > 0 ? (ayes / turnout) * 100 : 0;
+                const sqrtE = Math.sqrt(electorate);
+                const sqrtT = Math.sqrt(turnout);
+                const thresholdPct = sqrtE + sqrtT > 0 ? (sqrtE / (sqrtE + sqrtT)) * 100 : 100;
+                await db.insertIntoGeneralCache("governance-proposal", { id }, {
+                    id,
+                    start: proposal.start || proposal.startMoment,
+                    startCindex: proposal.startCindex || proposal.start_cindex,
+                    actionType: aType,
+                    actionSummary: `${aType === "issueSwapNativeOption" ? "Issue swap native option" : "Issue swap asset option"} for ${cidNameMap[cid] || cid}`,
+                    communityId: cid,
+                    communityName: cidNameMap[cid] || null,
+                    state: sLabel,
+                    electorateSize: electorate,
+                    turnout, ayes, nays: turnout - ayes,
+                    turnoutPct: Math.round(turnoutPct * 10) / 10,
+                    approvalPct: Math.round(approvalPct * 10) / 10,
+                    thresholdPct: Math.round(thresholdPct * 10) / 10,
+                    passing: approvalPct >= thresholdPct && turnout > 0,
+                });
+            }
+
+            // For non-terminal, compute passing
+            let passing = false;
+            if (!isTerminal(state)) {
+                const tallyRaw = await api.query.encointerDemocracy.tallies(id);
+                const tally = tallyRaw.isSome ? tallyRaw.toJSON() : { turnout: 0, ayes: 0 };
+                const electorate = proposal.electorateSize || proposal.electorate_size || 0;
+                const turnout = tally.turnout || 0;
+                const ayes = tally.ayes || 0;
+                const approvalPct = turnout > 0 ? (ayes / turnout) * 100 : 0;
+                const sqrtE = Math.sqrt(electorate);
+                const sqrtT = Math.sqrt(turnout);
+                const thresholdPct = sqrtE + sqrtT > 0 ? (sqrtE / (sqrtE + sqrtT)) * 100 : 100;
+                passing = approvalPct >= thresholdPct && turnout > 0;
+            }
+
+            const isNative = aType === "issueSwapNativeOption";
+            const decimals = isNative ? 12 : USDC_DECIMALS;
+            const allowanceKey = isNative ? "nativeAllowance" : "assetAllowance";
+            const allowance = optionData?.[allowanceKey] != null
+                ? parseChainInt(optionData[allowanceKey]) / Math.pow(10, decimals)
+                : null;
+
+            const entry = {
+                id,
+                state: sLabel,
+                beneficiary,
+                allowance,
+                rate: parseFixedI64F64(optionData?.rate),
+                doBurn: optionData?.doBurn ?? null,
+                validFrom: optionData?.validFrom ?? null,
+                validUntil: optionData?.validUntil ?? null,
+                passing,
+            };
+            if (isNative) nativeProposals.push(entry);
+            else assetProposals.push(entry);
+        }
+
+        // --- Treasury event history ---
+        const nativeEvents = [];
+        const assetEvents = [];
+
+        for (const txn of incoming) {
+            const nameAndDecimals = getAssetNameAndDecimals(txn.data.assetId);
+            if (!nameAndDecimals) continue;
+            const { name, decimals } = nameAndDecimals;
+            const amount = parseInt(txn.data.amount.replace(/,/g, "")) / Math.pow(10, decimals);
+            const event = { timestamp: txn.timestamp, type: "topup", amount, from: txn.data.from };
+            if (name === "KSM") nativeEvents.push(event);
+            else assetEvents.push({ ...event, assetName: name });
+        }
+
+        for (const spend of spends) {
+            const nameAndDecimals = getAssetNameAndDecimals(spend.data.assetId);
+            if (!nameAndDecimals) continue;
+            const { name, decimals } = nameAndDecimals;
+            const amount = parseInt(spend.data.amount.replace(/,/g, "")) / Math.pow(10, decimals);
+            const event = {
+                timestamp: spend.timestamp,
+                type: "spend",
+                amount,
+                beneficiary: spend.data.beneficiary,
+            };
+            if (name === "KSM") nativeEvents.push(event);
+            else assetEvents.push({ ...event, assetName: name });
+        }
+
+        for (const evt of swapOptionEvents) {
+            const isNative = evt.method === "GrantedSwapNativeOption";
+            const event = {
+                timestamp: evt.timestamp,
+                type: "option_granted",
+                beneficiary: evt.data?.beneficiary,
+            };
+            if (isNative) nativeEvents.push(event);
+            else assetEvents.push(event);
+        }
+
+        nativeEvents.sort((a, b) => a.timestamp - b.timestamp);
+        assetEvents.sort((a, b) => a.timestamp - b.timestamp);
+
+        // --- Enactment timing ---
+        const nextEnactmentTimestamp = nextPhaseTimestampRaw || null;
+
+        // --- Per-business statistics ---
+        // Collect all unique beneficiaries from active options + proposals
+        const beneficiarySet = new Set();
+        for (const o of activeNativeOptions) if (o.beneficiary) beneficiarySet.add(o.beneficiary);
+        for (const o of activeAssetOptions) if (o.beneficiary) beneficiarySet.add(o.beneficiary);
+        for (const p of nativeProposals) if (p.beneficiary) beneficiarySet.add(p.beneficiary);
+        for (const p of assetProposals) if (p.beneficiary) beneficiarySet.add(p.beneficiary);
+
+        let businesses = [];
+        if (beneficiarySet.size > 0) {
+            const allUsers = await db.getAllUsers();
+            const userMap = new Map(allUsers.map((u) => [u.address, u.name]));
+
+            // CC transfers bucketed by calendar month boundaries
+            const now = new Date();
+            const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+            const threeMonthsStart = new Date(now.getFullYear(), now.getMonth() - 3, 1).getTime();
+            const [allTimeCCTransfers, allIssues] = await Promise.all([
+                getAllTransfers(0, Date.now(), cid),
+                getAllIssues(cid),
+            ]);
+
+            // Build per-account influx/outflow from CC transfers
+            const influxCurrentMonth = new Map();
+            const influx3m = new Map();
+            const influxOlder = new Map();
+            const edgeMap = new Map();
+            const nodeIds = new Set();
+            for (const t of allTimeCCTransfers) {
+                const sender = t.data[1];
+                const recipient = t.data[2];
+                const amount = t.data[3];
+                nodeIds.add(sender);
+                nodeIds.add(recipient);
+                if (t.timestamp >= currentMonthStart) {
+                    influxCurrentMonth.set(recipient, (influxCurrentMonth.get(recipient) || 0) + amount);
+                } else if (t.timestamp >= threeMonthsStart) {
+                    influx3m.set(recipient, (influx3m.get(recipient) || 0) + amount);
+                } else {
+                    influxOlder.set(recipient, (influxOlder.get(recipient) || 0) + amount);
+                }
+                // Aggregate edges for circularity
+                const key = `${sender}|${recipient}`;
+                if (edgeMap.has(key)) {
+                    edgeMap.get(key).amount += amount;
+                } else {
+                    edgeMap.set(key, { source: sender, target: recipient, amount });
+                }
+            }
+
+            // Ceremony issuance (UBI) per account — all-time
+            const ceremonyIssuance = new Map();
+            for (const iss of allIssues) {
+                const account = iss.data[1];
+                const amount = iss.data[2];
+                ceremonyIssuance.set(account, (ceremonyIssuance.get(account) || 0) + amount);
+            }
+
+            // Compute per-node circularity
+            const edges = [...edgeMap.values()];
+            const perNodeCirc = computePerNodeCircularity(edges);
+
+            // Exercised amounts per beneficiary (from treasury spends)
+            const exercisedNative = new Map();
+            const exercisedAsset = new Map();
+            for (const spend of spends) {
+                const nd = getAssetNameAndDecimals(spend.data.assetId);
+                if (!nd) continue;
+                const { name, decimals } = nd;
+                const amount = parseInt(spend.data.amount.replace(/,/g, "")) / Math.pow(10, decimals);
+                const ben = spend.data.beneficiary;
+                if (name === "KSM") exercisedNative.set(ben, (exercisedNative.get(ben) || 0) + amount);
+                else exercisedAsset.set(ben, (exercisedAsset.get(ben) || 0) + amount);
+            }
+
+            businesses = [...beneficiarySet].map((addr) => {
+                const activeNative = activeNativeOptions.filter((o) => o.beneficiary === addr)
+                    .reduce((s, o) => s + (o.remainingAllowance || 0), 0);
+                const activeAsset = activeAssetOptions.filter((o) => o.beneficiary === addr)
+                    .reduce((s, o) => s + (o.remainingAllowance || 0), 0);
+                const approvedNative = nativeProposals.filter((p) => p.beneficiary === addr && p.state === "Approved")
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+                const approvedAssetAmt = assetProposals.filter((p) => p.beneficiary === addr && p.state === "Approved")
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+                const proposedNative = nativeProposals.filter((p) => p.beneficiary === addr && (p.state === "Ongoing" || p.state === "Confirming"))
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+                const proposedAssetAmt = assetProposals.filter((p) => p.beneficiary === addr && (p.state === "Ongoing" || p.state === "Confirming"))
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+
+                const circ = perNodeCirc.get(addr) || { outflow2: 0, outflow3: 0, outflow4plus: 0, outflowNonCircular: 0, totalOutflow: 0 };
+
+                return {
+                    address: addr,
+                    name: userMap.get(addr) || null,
+                    swapOptions: {
+                        native: {
+                            exercised: exercisedNative.get(addr) || 0,
+                            active: activeNative,
+                            approved: approvedNative,
+                            proposed: proposedNative,
+                        },
+                        asset: {
+                            exercised: exercisedAsset.get(addr) || 0,
+                            active: activeAsset,
+                            approved: approvedAssetAmt,
+                            proposed: proposedAssetAmt,
+                        },
+                    },
+                    ccInfluxCurrentMonth: influxCurrentMonth.get(addr) || 0,
+                    ccInflux3m: influx3m.get(addr) || 0,
+                    ccInfluxOlder: influxOlder.get(addr) || 0,
+                    ccCeremonyIssuance: ceremonyIssuance.get(addr) || 0,
+                    ccOutflow: circ,
+                };
+            });
+        }
+
+        res.send(JSON.stringify({
+            communityName: treasury.name,
+            native: {
+                currentBalance: ksmBalance,
+                activeOptions: activeNativeOptions,
+                proposals: nativeProposals,
+                events: nativeEvents,
+            },
+            asset: {
+                assetName: "USDC",
+                currentBalance: usdcBalance,
+                activeOptions: activeAssetOptions,
+                proposals: assetProposals,
+                events: assetEvents,
+            },
+            nextEnactmentTimestamp,
+            businesses,
+        }));
     } catch (e) {
         next(e);
     }
