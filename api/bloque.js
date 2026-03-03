@@ -1,4 +1,5 @@
 import express from "express";
+import { encodeAddress } from "@polkadot/util-crypto";
 import db from "../db.js";
 
 const bloque = express.Router();
@@ -58,7 +59,18 @@ bloque.get("/accounts", async (req, res, next) => {
             res.status(apiRes.status).send(await apiRes.text());
             return;
         }
-        res.json(await apiRes.json());
+        const body = await apiRes.json();
+        if (body.accounts) {
+            body.accounts = body.accounts.map((a) => {
+                if (a.ledger_account_id) {
+                    try {
+                        a.deposit_address = encodeAddress(a.ledger_account_id, 2);
+                    } catch {}
+                }
+                return a;
+            });
+        }
+        res.json(body);
     } catch (e) {
         next(e);
     }
