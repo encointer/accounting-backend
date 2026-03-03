@@ -39,6 +39,27 @@ bloque.use((req, res, next) => {
     next();
 });
 
+bloque.get("/identity", async (req, res, next) => {
+    try {
+        const creds = await db.getBloqueCredentials(req.session.address);
+        if (!creds) {
+            res.sendStatus(404);
+            return;
+        }
+        const token = await bloqueConnect(creds.alias);
+        const apiRes = await fetch(`${BLOQUE_API}/api/identities/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!apiRes.ok) {
+            res.status(apiRes.status).send(await apiRes.text());
+            return;
+        }
+        res.json(await apiRes.json());
+    } catch (e) {
+        next(e);
+    }
+});
+
 bloque.get("/accounts", async (req, res, next) => {
     try {
         const creds = await db.getBloqueCredentials(req.session.address);
@@ -61,6 +82,7 @@ bloque.get("/accounts", async (req, res, next) => {
         }
         const body = await apiRes.json();
         if (body.accounts) {
+            body.accounts = body.accounts.filter((a) => a.status === "active");
             body.accounts = body.accounts.map((a) => {
                 if (a.ledger_account_id) {
                     try {
