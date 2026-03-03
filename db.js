@@ -26,6 +26,25 @@ class Database {
         this.communities = this.main.collection("communities");
         this.vouchers = this.main.collection("vouchers");
         this.knows_addresses = this.main.collection("known_addresses");
+
+        this.bloqueDb = this.dbClient.db("bloque-credentials");
+        this.bloqueCredentials = this.bloqueDb.collection("credentials");
+    }
+
+    async getBloqueCredentials(address) {
+        return this.bloqueCredentials.findOne({ address });
+    }
+
+    async upsertBloqueCredentials(address, apiKey, alias) {
+        await this.bloqueCredentials.replaceOne(
+            { address },
+            { address, apiKey, alias },
+            { upsert: true }
+        );
+    }
+
+    async deleteBloqueCredentials(address) {
+        await this.bloqueCredentials.deleteOne({ address });
     }
 
     async insertIntoGeneralCache(cacheIdentifier, query, data) {
