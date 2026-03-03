@@ -5,7 +5,9 @@ const bloque = express.Router();
 
 const BLOQUE_API = "https://api.bloque.app";
 
-async function bloqueConnect(apiKey, alias) {
+async function bloqueConnect(alias) {
+    const apiKey = process.env.BLOQUE_API_KEY;
+    if (!apiKey) throw new Error("BLOQUE_API_KEY env variable not set");
     const res = await fetch(`${BLOQUE_API}/api/origins/encointer/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -24,7 +26,7 @@ async function bloqueConnect(apiKey, alias) {
         });
     }
     const data = await res.json();
-    return data.access_token;
+    return data.result?.access_token ?? data.access_token;
 }
 
 // Auth guard: require logged-in session
@@ -36,16 +38,20 @@ bloque.use((req, res, next) => {
     next();
 });
 
-bloque.get("/cards", async (req, res, next) => {
+bloque.get("/accounts", async (req, res, next) => {
     try {
         const creds = await db.getBloqueCredentials(req.session.address);
         if (!creds) {
             res.sendStatus(404);
             return;
         }
-        const token = await bloqueConnect(creds.apiKey, creds.alias);
+        const token = await bloqueConnect(creds.alias);
+        const params = new URLSearchParams({
+            holder_urn: `did:bloque:encointer:${creds.alias}`,
+        });
+        if (req.query.medium) params.set("medium", req.query.medium);
         const apiRes = await fetch(
-            `${BLOQUE_API}/api/accounts?medium=card&holder_urn=did:bloque:encointer:${encodeURIComponent(creds.alias)}`,
+            `${BLOQUE_API}/api/accounts?${params}`,
             { headers: { Authorization: `Bearer ${token}` } }
         );
         if (!apiRes.ok) {
@@ -58,14 +64,14 @@ bloque.get("/cards", async (req, res, next) => {
     }
 });
 
-bloque.get("/cards/:urn/movements", async (req, res, next) => {
+bloque.get("/accounts/:urn/movements", async (req, res, next) => {
     try {
         const creds = await db.getBloqueCredentials(req.session.address);
         if (!creds) {
             res.sendStatus(404);
             return;
         }
-        const token = await bloqueConnect(creds.apiKey, creds.alias);
+        const token = await bloqueConnect(creds.alias);
         const params = new URLSearchParams({ asset: "DUSD/6", limit: "50" });
         for (const key of ["next", "after", "before", "direction"]) {
             if (req.query[key]) params.set(key, req.query[key]);
@@ -90,12 +96,12 @@ bloque.put("/credentials", async (req, res, next) => {
             res.sendStatus(403);
             return;
         }
-        const { address, apiKey, alias } = req.body;
-        if (!address || !apiKey || !alias) {
-            res.status(400).send("address, apiKey, and alias are required");
+        const { address, alias } = req.body;
+        if (!address || !alias) {
+            res.status(400).send("address and alias are required");
             return;
         }
-        await db.upsertBloqueCredentials(address, apiKey, alias);
+        await db.upsertBloqueCredentials(address, alias);
         res.sendStatus(200);
     } catch (e) {
         next(e);

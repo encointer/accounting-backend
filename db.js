@@ -35,10 +35,10 @@ class Database {
         return this.bloqueCredentials.findOne({ address });
     }
 
-    async upsertBloqueCredentials(address, apiKey, alias) {
+    async upsertBloqueCredentials(address, alias) {
         await this.bloqueCredentials.replaceOne(
             { address },
-            { address, apiKey, alias },
+            { address, alias },
             { upsert: true }
         );
     }
