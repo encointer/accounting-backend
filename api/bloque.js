@@ -72,8 +72,8 @@ bloque.get("/accounts/:urn/movements", async (req, res, next) => {
             return;
         }
         const token = await bloqueConnect(creds.alias);
-        const params = new URLSearchParams({ asset: "DUSD/6", limit: "50" });
-        for (const key of ["next", "after", "before", "direction"]) {
+        const params = new URLSearchParams({ limit: "50" });
+        for (const key of ["asset", "next", "after", "before", "direction"]) {
             if (req.query[key]) params.set(key, req.query[key]);
         }
         const apiRes = await fetch(
