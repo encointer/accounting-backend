@@ -22,7 +22,9 @@ import {
     gatherNativeTransactionData,
     gatherTransactionData,
     getBlockNumberByTimestamp,
+    getAllTransfers,
 } from "../graphQl.js";
+import { computePerNodeCircularity } from "../circularity.js";
 import db from "../db.js";
 import { parseCid, reduceObjects } from "../util.js";
 import {
@@ -1358,9 +1360,106 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
         assetEvents.sort((a, b) => a.timestamp - b.timestamp);
 
         // --- Enactment timing ---
-        // Approved proposals are enacted at the next Assigning phase transition
-        // Phase cycle: Registering → Assigning → Attesting → Registering
         const nextEnactmentTimestamp = nextPhaseTimestampRaw || null;
+
+        // --- Per-business statistics ---
+        // Collect all unique beneficiaries from active options + proposals
+        const beneficiarySet = new Set();
+        for (const o of activeNativeOptions) if (o.beneficiary) beneficiarySet.add(o.beneficiary);
+        for (const o of activeAssetOptions) if (o.beneficiary) beneficiarySet.add(o.beneficiary);
+        for (const p of nativeProposals) if (p.beneficiary) beneficiarySet.add(p.beneficiary);
+        for (const p of assetProposals) if (p.beneficiary) beneficiarySet.add(p.beneficiary);
+
+        let businesses = [];
+        if (beneficiarySet.size > 0) {
+            const allUsers = await db.getAllUsers();
+            const userMap = new Map(allUsers.map((u) => [u.address, u.name]));
+
+            // CC transfers: last 3 months and all-time
+            const now = Date.now();
+            const threeMonthsAgo = now - 90 * 86400000;
+            const allTimeCCTransfers = await getAllTransfers(0, now, cid);
+
+            // Build per-account influx/outflow from CC transfers
+            const influxAllTime = new Map();
+            const influxRecent = new Map();
+            const edgeMap = new Map();
+            const nodeIds = new Set();
+            for (const t of allTimeCCTransfers) {
+                const sender = t.data[1];
+                const recipient = t.data[2];
+                const amount = t.data[3];
+                nodeIds.add(sender);
+                nodeIds.add(recipient);
+                influxAllTime.set(recipient, (influxAllTime.get(recipient) || 0) + amount);
+                if (t.timestamp >= threeMonthsAgo) {
+                    influxRecent.set(recipient, (influxRecent.get(recipient) || 0) + amount);
+                }
+                // Aggregate edges for circularity
+                const key = `${sender}|${recipient}`;
+                if (edgeMap.has(key)) {
+                    edgeMap.get(key).amount += amount;
+                } else {
+                    edgeMap.set(key, { source: sender, target: recipient, amount });
+                }
+            }
+
+            // Compute per-node circularity
+            const edges = [...edgeMap.values()];
+            const perNodeCirc = computePerNodeCircularity(edges);
+
+            // Exercised amounts per beneficiary (from treasury spends)
+            const exercisedNative = new Map();
+            const exercisedAsset = new Map();
+            for (const spend of spends) {
+                const nd = getAssetNameAndDecimals(spend.data.assetId);
+                if (!nd) continue;
+                const { name, decimals } = nd;
+                const amount = parseInt(spend.data.amount.replace(/,/g, "")) / Math.pow(10, decimals);
+                const ben = spend.data.beneficiary;
+                if (name === "KSM") exercisedNative.set(ben, (exercisedNative.get(ben) || 0) + amount);
+                else exercisedAsset.set(ben, (exercisedAsset.get(ben) || 0) + amount);
+            }
+
+            businesses = [...beneficiarySet].map((addr) => {
+                const activeNative = activeNativeOptions.filter((o) => o.beneficiary === addr)
+                    .reduce((s, o) => s + (o.remainingAllowance || 0), 0);
+                const activeAsset = activeAssetOptions.filter((o) => o.beneficiary === addr)
+                    .reduce((s, o) => s + (o.remainingAllowance || 0), 0);
+                const approvedNative = nativeProposals.filter((p) => p.beneficiary === addr && p.state === "Approved")
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+                const approvedAssetAmt = assetProposals.filter((p) => p.beneficiary === addr && p.state === "Approved")
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+                const proposedNative = nativeProposals.filter((p) => p.beneficiary === addr && (p.state === "Ongoing" || p.state === "Confirming"))
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+                const proposedAssetAmt = assetProposals.filter((p) => p.beneficiary === addr && (p.state === "Ongoing" || p.state === "Confirming"))
+                    .reduce((s, p) => s + (p.allowance || 0), 0);
+
+                const circ = perNodeCirc.get(addr) || { outflow2: 0, outflow3: 0, outflow4plus: 0, outflowNonCircular: 0, totalOutflow: 0 };
+
+                return {
+                    address: addr,
+                    name: userMap.get(addr) || null,
+                    swapOptions: {
+                        native: {
+                            exercised: exercisedNative.get(addr) || 0,
+                            active: activeNative,
+                            approved: approvedNative,
+                            proposed: proposedNative,
+                        },
+                        asset: {
+                            exercised: exercisedAsset.get(addr) || 0,
+                            active: activeAsset,
+                            approved: approvedAssetAmt,
+                            proposed: proposedAssetAmt,
+                        },
+                    },
+                    ccInflux3m: influxRecent.get(addr) || 0,
+                    ccInfluxAllTime: influxAllTime.get(addr) || 0,
+                    ccOutflow: circ,
+                };
+            });
+        }
 
         res.send(JSON.stringify({
             communityName: treasury.name,
@@ -1378,6 +1477,7 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
                 events: assetEvents,
             },
             nextEnactmentTimestamp,
+            businesses,
         }));
     } catch (e) {
         next(e);

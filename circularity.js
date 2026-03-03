@@ -84,6 +84,84 @@ export function computeCircularity(nodes, edges) {
 }
 
 /**
+ * Per-node cycle flow decomposition.
+ * Same algorithm as computeCircularity, but tracks which nodes participate
+ * in each peeled cycle and how much outflow each node has in cycles of each length.
+ *
+ * @param {Array<{source: string, target: string, amount: number}>} edges
+ * @returns {Map<string, {outflow2: number, outflow3: number, outflow4plus: number, outflowNonCircular: number, totalOutflow: number}>}
+ */
+export function computePerNodeCircularity(edges) {
+    const result = new Map();
+    if (!edges || edges.length === 0) return result;
+
+    // Compute total outflow per node from original edges
+    const totalOutflow = new Map();
+    for (const e of edges) {
+        totalOutflow.set(e.source, (totalOutflow.get(e.source) || 0) + e.amount);
+    }
+
+    // Build residual adjacency
+    const residual = new Map();
+    for (const e of edges) {
+        if (!residual.has(e.source)) residual.set(e.source, new Map());
+        const out = residual.get(e.source);
+        out.set(e.target, (out.get(e.target) || 0) + e.amount);
+    }
+
+    // Per-node circular outflow by cycle length bucket
+    const nodeCircular2 = new Map();
+    const nodeCircular3 = new Map();
+    const nodeCircular4plus = new Map();
+
+    for (;;) {
+        const cycle = findCycle(residual);
+        if (!cycle) break;
+
+        let bottleneck = Infinity;
+        for (let i = 0; i < cycle.length; i++) {
+            const u = cycle[i];
+            const v = cycle[(i + 1) % cycle.length];
+            bottleneck = Math.min(bottleneck, residual.get(u).get(v));
+        }
+
+        for (let i = 0; i < cycle.length; i++) {
+            const u = cycle[i];
+            const v = cycle[(i + 1) % cycle.length];
+            const out = residual.get(u);
+            const remaining = out.get(v) - bottleneck;
+            if (remaining < 1e-9) {
+                out.delete(v);
+                if (out.size === 0) residual.delete(u);
+            } else {
+                out.set(v, remaining);
+            }
+        }
+
+        const len = cycle.length;
+        const bucket = len === 2 ? nodeCircular2 : len === 3 ? nodeCircular3 : nodeCircular4plus;
+        for (const nodeId of cycle) {
+            bucket.set(nodeId, (bucket.get(nodeId) || 0) + bottleneck);
+        }
+    }
+
+    for (const [nodeId, total] of totalOutflow) {
+        const c2 = nodeCircular2.get(nodeId) || 0;
+        const c3 = nodeCircular3.get(nodeId) || 0;
+        const c4 = nodeCircular4plus.get(nodeId) || 0;
+        result.set(nodeId, {
+            outflow2: c2,
+            outflow3: c3,
+            outflow4plus: c4,
+            outflowNonCircular: Math.max(0, total - c2 - c3 - c4),
+            totalOutflow: total,
+        });
+    }
+
+    return result;
+}
+
+/**
  * Find any cycle in the residual graph via DFS.
  * Returns array of node IDs forming the cycle, or null.
  */
