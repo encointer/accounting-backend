@@ -49,7 +49,7 @@ governance.get("/proposals", async function (req, res, next) {
                 "governance-proposal",
                 { id }
             );
-            if (cached.length > 0) {
+            if (cached.length > 0 && cached[0].state !== "Approved") {
                 results.push(cached[0]);
                 continue;
             }

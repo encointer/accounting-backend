@@ -7,7 +7,7 @@ export function stateKey(state) {
     return "";
 }
 
-const TERMINAL_KEYS = new Set(["enacted", "approved", "rejected", "supersededby", "supersededBy"]);
+const TERMINAL_KEYS = new Set(["enacted", "rejected", "supersededby", "supersededBy"]);
 
 export function isTerminal(state) {
     return TERMINAL_KEYS.has(stateKey(state));

@@ -1198,7 +1198,7 @@ accounting.get("/swap-option-analysis", async function (req, res, next) {
         for (let id = 1; id <= proposalCount; id++) {
             const cached = await db.getFromGeneralCache("governance-proposal", { id });
             let proposal, state;
-            if (cached.length > 0) {
+            if (cached.length > 0 && cached[0].state !== "Approved") {
                 const c = cached[0];
                 if (c.communityId !== cid) continue;
                 if (c.actionType !== "issueSwapNativeOption" && c.actionType !== "issueSwapAssetOption") continue;
