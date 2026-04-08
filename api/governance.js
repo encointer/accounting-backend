@@ -291,12 +291,14 @@ governance.get("/voting-power-analysis", async function (req, res, next) {
                 electorateByPower[power] = (electorateByPower[power] || 0) + 1;
             }
 
-            // Voters — use on-chain numVotes from VotePlaced events
+            // Voters — derive power from the same electorate computation
             const votes = votesByProposal.get(proposal.id) || [];
             const votersByPower = {};
             for (const v of votes) {
-                const pw = Math.min(v.numVotes, maxPower);
-                votersByPower[pw] = (votersByPower[pw] || 0) + 1;
+                const pw = accountPower.get(v.voter) || 0;
+                if (pw > 0) {
+                    votersByPower[pw] = (votersByPower[pw] || 0) + 1;
+                }
             }
 
             result.push({
