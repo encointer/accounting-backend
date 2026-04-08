@@ -248,28 +248,38 @@ governance.get("/voting-power-analysis", async function (req, res, next) {
             .toArray();
         const blockInfo = new Map(blocks.map((b) => [b.height, { cindex: b.cindex, phase: b.phase }]));
 
-        const issuances = [];
+        // Build (cid, cindex) -> set(accounts) from Issued events, deduplicating
+        // so each account counts at most once per ceremony per community.
+        const cidCiAccts = new Map(); // key: "cid:cindex", value: Set of accounts
         for (const e of issuedEvents) {
             const info = blockInfo.get(e.blockNumber);
             if (!info || info.cindex == null) continue;
             // Adjust for REGISTERING phase: issuance belongs to previous ceremony
             const cindex = info.phase === "REGISTERING" ? info.cindex - 1 : info.cindex;
-            issuances.push({ account: e.data[1], cindex });
+            const cid = e.data[0];
+            const account = e.data[1];
+            const key = `${cid}:${cindex}`;
+            if (!cidCiAccts.has(key)) cidCiAccts.set(key, new Set());
+            cidCiAccts.get(key).add(account);
         }
 
         // 4. Per-proposal: electorate and voter distributions by power level
         const result = [];
         for (const proposal of proposals) {
-            if (!proposal.startCindex) continue;
-            const maxPower = REPUTATION_LIFETIME - 1; // cap at R-1 = 4
+            if (!proposal.startCindex || !proposal.communityId) continue;
+            // Pallet window: voting_cindexes = [cs - R + plc, cs - 2]
+            // where plc = proposal_lifetime_cycles = 1 on Kusama
+            const maxPower = REPUTATION_LIFETIME - 1;
             const minCi = proposal.startCindex - REPUTATION_LIFETIME + 1;
-            const maxCi = proposal.startCindex - 1; // exclude most recent ceremony
+            const maxCi = proposal.startCindex - 2; // pallet uses saturating_sub(2)
 
-            // Electorate: each Issued event in valid cindex range = one reputation
+            // Electorate: unique accounts per ceremony in the window
             const accountPower = new Map();
-            for (const iss of issuances) {
-                if (iss.cindex >= minCi && iss.cindex <= maxCi) {
-                    accountPower.set(iss.account, (accountPower.get(iss.account) || 0) + 1);
+            for (let ci = minCi; ci <= maxCi; ci++) {
+                const accts = cidCiAccts.get(`${proposal.communityId}:${ci}`);
+                if (!accts) continue;
+                for (const acct of accts) {
+                    accountPower.set(acct, (accountPower.get(acct) || 0) + 1);
                 }
             }
             // Cap power at maxPower
@@ -281,14 +291,12 @@ governance.get("/voting-power-analysis", async function (req, res, next) {
                 electorateByPower[power] = (electorateByPower[power] || 0) + 1;
             }
 
-            // Voters — derive power from computed electorate, not on-chain numVotes
+            // Voters — use on-chain numVotes from VotePlaced events
             const votes = votesByProposal.get(proposal.id) || [];
             const votersByPower = {};
             for (const v of votes) {
-                const pw = accountPower.get(v.voter) || 0;
-                if (pw > 0) {
-                    votersByPower[pw] = (votersByPower[pw] || 0) + 1;
-                }
+                const pw = Math.min(v.numVotes, maxPower);
+                votersByPower[pw] = (votersByPower[pw] || 0) + 1;
             }
 
             result.push({
