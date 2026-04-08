@@ -295,4 +295,138 @@ governance.get("/voting-power-analysis", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/governance/swap-voter-client-analysis:
+ *   get:
+ *     description: For each enacted swap option proposal, categorize Aye voters into
+ *                  those who previously sent CC to the beneficiary and those who have not.
+ *     tags:
+ *       - governance
+ *     responses:
+ *       '200':
+ *         description: Per-proposal breakdown of client vs non-client voters
+ */
+governance.get("/swap-voter-client-analysis", async function (req, res, next) {
+    try {
+        const api = req.app.get("api");
+        const allCommunities = await db.getAllCommunities();
+        const cidNameMap = {};
+        for (const c of allCommunities) cidNameMap[c.cid] = c.name;
+
+        // 1. Find enacted swap option proposals with beneficiary addresses
+        const proposalCount =
+            (await api.query.encointerDemocracy.proposalCount()).toJSON() || 0;
+
+        const swapProposals = [];
+        for (let id = 1; id <= proposalCount; id++) {
+            const proposalRaw = await api.query.encointerDemocracy.proposals(id);
+            if (proposalRaw.isNone) continue;
+            const proposal = proposalRaw.toJSON();
+            const aType = actionType(proposal.action);
+            if (aType !== "issueSwapAssetOption" && aType !== "issueSwapNativeOption") continue;
+            if (stateKey(proposal.state) !== "enacted") continue;
+
+            const args = proposal.action[aType];
+            const beneficiary = args[1];
+            const communityId = actionCommunityId(proposal.action);
+
+            swapProposals.push({
+                id,
+                beneficiary,
+                communityId,
+                communityName: cidNameMap[communityId] || communityId,
+                actionType: aType,
+                actionSummary: actionSummary(proposal.action, cidNameMap),
+            });
+        }
+
+        // 2. Get all VotePlaced events and resolve voter addresses
+        const votePlaced = await db.events
+            .find({ section: "encointerDemocracy", method: "VotePlaced" })
+            .toArray();
+        const extIds = votePlaced.map((v) => v.extrinsicId);
+        const extrinsics = await db.extrinsics
+            .find({ _id: { $in: extIds } })
+            .toArray();
+        const extMap = new Map(extrinsics.map((e) => [e._id, e]));
+
+        // Build per-proposal Aye voters with timestamps
+        const ayeVotersByProposal = new Map();
+        for (const v of votePlaced) {
+            const ext = extMap.get(v.extrinsicId);
+            if (!ext) continue;
+            const pid = v.data?.proposalId ?? v.data?.[0];
+            const voteDir =
+                v.data?.vote ??
+                (v.data?.[1] === "Aye" || v.data?.[1]?.aye !== undefined
+                    ? "Aye"
+                    : "Nay");
+            const voter = ext.signer?.Id;
+            if (!pid || !voter || voteDir !== "Aye") continue;
+            if (!ayeVotersByProposal.has(pid)) ayeVotersByProposal.set(pid, []);
+            ayeVotersByProposal.get(pid).push({ voter, timestamp: v.timestamp });
+        }
+
+        // 3. For each swap proposal, check which Aye voters are clients
+        const results = [];
+        for (const sp of swapProposals) {
+            const ayeVoters = ayeVotersByProposal.get(sp.id) || [];
+            if (ayeVoters.length === 0) {
+                results.push({
+                    ...sp,
+                    totalAyeVoters: 0,
+                    clientVoters: 0,
+                    nonClientVoters: 0,
+                    clients: [],
+                    nonClients: [],
+                });
+                continue;
+            }
+
+            // Query all CC transfers TO beneficiary
+            const transfersToBeneficiary = await db.events
+                .find({
+                    section: "encointerBalances",
+                    method: "Transferred",
+                    "data.2": sp.beneficiary,
+                })
+                .toArray();
+
+            // Build map: sender → list of transfer timestamps
+            const senderTransfers = new Map();
+            for (const t of transfersToBeneficiary) {
+                const sender = t.data[1];
+                if (!senderTransfers.has(sender)) senderTransfers.set(sender, []);
+                senderTransfers.get(sender).push(t.timestamp);
+            }
+
+            const clients = [];
+            const nonClients = [];
+            for (const { voter, timestamp: voteTs } of ayeVoters) {
+                const transfers = senderTransfers.get(voter) || [];
+                const hasPriorTransfer = transfers.some((ts) => ts < voteTs);
+                if (hasPriorTransfer) {
+                    clients.push(voter);
+                } else {
+                    nonClients.push(voter);
+                }
+            }
+
+            results.push({
+                ...sp,
+                totalAyeVoters: ayeVoters.length,
+                clientVoters: clients.length,
+                nonClientVoters: nonClients.length,
+                clients,
+                nonClients,
+            });
+        }
+
+        res.send(JSON.stringify(results));
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default governance;
