@@ -244,14 +244,16 @@ governance.get("/voting-power-analysis", async function (req, res, next) {
         // 3. Issued events (UBI = successful ceremony) → cindex via blocks
         const blockNums = [...new Set(issuedEvents.map((e) => e.blockNumber))];
         const blocks = await db.blocks
-            .find({ height: { $in: blockNums } }, { projection: { height: 1, cindex: 1 } })
+            .find({ height: { $in: blockNums } }, { projection: { height: 1, cindex: 1, phase: 1 } })
             .toArray();
-        const blockCindex = new Map(blocks.map((b) => [b.height, b.cindex]));
+        const blockInfo = new Map(blocks.map((b) => [b.height, { cindex: b.cindex, phase: b.phase }]));
 
         const issuances = [];
         for (const e of issuedEvents) {
-            const cindex = blockCindex.get(e.blockNumber);
-            if (cindex == null) continue;
+            const info = blockInfo.get(e.blockNumber);
+            if (!info || info.cindex == null) continue;
+            // Adjust for REGISTERING phase: issuance belongs to previous ceremony
+            const cindex = info.phase === "REGISTERING" ? info.cindex - 1 : info.cindex;
             issuances.push({ account: e.data[1], cindex });
         }
 
@@ -259,8 +261,9 @@ governance.get("/voting-power-analysis", async function (req, res, next) {
         const result = [];
         for (const proposal of proposals) {
             if (!proposal.startCindex) continue;
+            const maxPower = REPUTATION_LIFETIME - 1; // cap at R-1 = 4
             const minCi = proposal.startCindex - REPUTATION_LIFETIME + 1;
-            const maxCi = proposal.startCindex;
+            const maxCi = proposal.startCindex - 1; // exclude most recent ceremony
 
             // Electorate: each Issued event in valid cindex range = one reputation
             const accountPower = new Map();
@@ -269,16 +272,23 @@ governance.get("/voting-power-analysis", async function (req, res, next) {
                     accountPower.set(iss.account, (accountPower.get(iss.account) || 0) + 1);
                 }
             }
+            // Cap power at maxPower
+            for (const [acct, power] of accountPower) {
+                if (power > maxPower) accountPower.set(acct, maxPower);
+            }
             const electorateByPower = {};
             for (const [, power] of accountPower) {
                 electorateByPower[power] = (electorateByPower[power] || 0) + 1;
             }
 
-            // Voters
+            // Voters — derive power from computed electorate, not on-chain numVotes
             const votes = votesByProposal.get(proposal.id) || [];
             const votersByPower = {};
             for (const v of votes) {
-                votersByPower[v.numVotes] = (votersByPower[v.numVotes] || 0) + 1;
+                const pw = accountPower.get(v.voter) || 0;
+                if (pw > 0) {
+                    votersByPower[pw] = (votersByPower[pw] || 0) + 1;
+                }
             }
 
             result.push({
