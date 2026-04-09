@@ -462,6 +462,17 @@ governance.get("/swap-voter-client-analysis", async function (req, res, next) {
  */
 governance.get("/voter-highscore", async function (req, res, next) {
     try {
+        // 0. Build acceptance-point and user-name lookups
+        const allCommunities = await db.getAllCommunities();
+        const acceptancePoints = new Set();
+        for (const c of allCommunities) {
+            if (c.accounts) c.accounts.forEach((a) => acceptancePoints.add(a));
+        }
+        const usersWithNames = await db.users
+            .find({ name: { $exists: true } }, { projection: { address: 1, name: 1 } })
+            .toArray();
+        const nameMap = new Map(usersWithNames.map((u) => [u.address, u.name]));
+
         // 1. Get all VotePlaced events and resolve voter addresses + power
         const votePlaced = await db.events
             .find({ section: "encointerDemocracy", method: "VotePlaced" })
@@ -559,6 +570,8 @@ governance.get("/voter-highscore", async function (req, res, next) {
                 proposalsVoted: stats.proposals.size,
                 avgVotingPower: Math.round((stats.totalPower / stats.voteCount) * 100) / 100,
                 avgMonthlySpending,
+                isBusiness: acceptancePoints.has(voter),
+                name: nameMap.get(voter) || null,
             });
         }
 
