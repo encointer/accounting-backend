@@ -462,6 +462,8 @@ governance.get("/swap-voter-client-analysis", async function (req, res, next) {
  */
 governance.get("/voter-highscore", async function (req, res, next) {
     try {
+        const filterCid = req.query.cid || null;
+
         // 0. Build acceptance-point and user-name lookups
         const communitiesWithAccounts = await db.communities
             .find({}, { projection: { accounts: 1 } })
@@ -504,16 +506,54 @@ governance.get("/voter-highscore", async function (req, res, next) {
             s.voteCount++;
         }
 
-        // 2. Get proposal submission timestamps
+        // 2. Get proposal metadata (timestamp + communityId)
         const allPids = new Set();
         for (const s of voterStats.values()) {
             for (const pid of s.proposalIds) allPids.add(pid);
         }
-        const proposalTimestamps = new Map();
+        const proposalMeta = new Map(); // pid -> { start, communityId }
         for (const pid of allPids) {
             const cached = await db.getFromGeneralCache("governance-proposal", { id: pid });
-            if (cached.length > 0 && cached[0].start) {
-                proposalTimestamps.set(pid, cached[0].start);
+            if (cached.length > 0) {
+                proposalMeta.set(pid, {
+                    start: cached[0].start,
+                    communityId: cached[0].communityId || null,
+                });
+            }
+        }
+
+        // If filtering by community, remove votes for other communities' proposals
+        if (filterCid) {
+            for (const [voter, stats] of voterStats) {
+                const filtered = new Set();
+                let filteredPower = 0;
+                let filteredCount = 0;
+                // Need to re-scan votes for this voter to recompute power
+                for (const pid of stats.proposalIds) {
+                    const meta = proposalMeta.get(pid);
+                    if (meta && meta.communityId === filterCid) {
+                        filtered.add(pid);
+                    }
+                }
+                if (filtered.size === 0) {
+                    voterStats.delete(voter);
+                } else {
+                    stats.proposalIds = filtered;
+                    // Recompute power from original votes
+                    stats.totalPower = 0;
+                    stats.voteCount = 0;
+                    for (const v of votePlaced) {
+                        const ext = extMap.get(v.extrinsicId);
+                        if (!ext) continue;
+                        const pid = v.data?.proposalId ?? v.data?.[0];
+                        const numVotes = v.data?.numVotes ?? v.data?.[2];
+                        const vtr = ext.signer?.Id;
+                        if (vtr === voter && filtered.has(pid)) {
+                            stats.totalPower += numVotes;
+                            stats.voteCount++;
+                        }
+                    }
+                }
             }
         }
 
@@ -532,15 +572,15 @@ governance.get("/voter-highscore", async function (req, res, next) {
             return months;
         }
 
-        // 3. Get all CC outgoing transfers per voter
+        // 3. Get CC outgoing transfers per voter (filtered by community if specified)
         const voters = [...voterStats.keys()];
-        const transfers = await db.events
-            .find({
-                section: "encointerBalances",
-                method: "Transferred",
-                "data.1": { $in: voters },
-            })
-            .toArray();
+        const transferQuery = {
+            section: "encointerBalances",
+            method: "Transferred",
+            "data.1": { $in: voters },
+        };
+        if (filterCid) transferQuery["data.0"] = filterCid;
+        const transfers = await db.events.find(transferQuery).toArray();
 
         // Aggregate monthly outflows per voter
         const voterOutflows = new Map(); // voter -> Map<"YYYY-MM", total>
@@ -564,7 +604,7 @@ governance.get("/voter-highscore", async function (req, res, next) {
             let avgSpending = 0;
             let proposalsWithTs = 0;
             for (const pid of stats.proposalIds) {
-                const ts = proposalTimestamps.get(pid);
+                const ts = proposalMeta.get(pid)?.start;
                 if (!ts) continue;
                 const window = threeMonthsBefore(ts);
                 let total = 0;
