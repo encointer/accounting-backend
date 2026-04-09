@@ -486,7 +486,7 @@ governance.get("/voter-highscore", async function (req, res, next) {
         const extMap = new Map(extrinsics.map((e) => [e._id, e]));
 
         // Aggregate per voter: proposals voted, total power
-        const voterStats = new Map(); // voter -> { proposals: Set, totalPower, voteCount }
+        const voterStats = new Map(); // voter -> { proposalIds: Set, totalPower, voteCount }
         for (const v of votePlaced) {
             const ext = extMap.get(v.extrinsicId);
             if (!ext) continue;
@@ -496,15 +496,43 @@ governance.get("/voter-highscore", async function (req, res, next) {
             if (!pid || !voter || !numVotes) continue;
 
             if (!voterStats.has(voter)) {
-                voterStats.set(voter, { proposals: new Set(), totalPower: 0, voteCount: 0 });
+                voterStats.set(voter, { proposalIds: new Set(), totalPower: 0, voteCount: 0 });
             }
             const s = voterStats.get(voter);
-            s.proposals.add(pid);
+            s.proposalIds.add(pid);
             s.totalPower += numVotes;
             s.voteCount++;
         }
 
-        // 2. Get all CC outgoing transfers per voter
+        // 2. Get proposal submission timestamps
+        const allPids = new Set();
+        for (const s of voterStats.values()) {
+            for (const pid of s.proposalIds) allPids.add(pid);
+        }
+        const proposalTimestamps = new Map();
+        for (const pid of allPids) {
+            const cached = await db.getFromGeneralCache("governance-proposal", { id: pid });
+            if (cached.length > 0 && cached[0].start) {
+                proposalTimestamps.set(pid, cached[0].start);
+            }
+        }
+
+        // Helper: get the 3 full months before a timestamp as "YYYY-MM" strings
+        function threeMonthsBefore(ts) {
+            const d = new Date(ts);
+            // Current month (partial, excluded) -> go to previous month
+            let y = d.getUTCFullYear();
+            let m = d.getUTCMonth(); // 0-indexed, this is the submission month
+            const months = [];
+            for (let i = 0; i < 3; i++) {
+                m--;
+                if (m < 0) { m = 11; y--; }
+                months.push(`${y}-${String(m + 1).padStart(2, "0")}`);
+            }
+            return months;
+        }
+
+        // 3. Get all CC outgoing transfers per voter
         const voters = [...voterStats.keys()];
         const transfers = await db.events
             .find({
@@ -528,50 +556,32 @@ governance.get("/voter-highscore", async function (req, res, next) {
             months.set(month, (months.get(month) || 0) + amount);
         }
 
-        // 3. Build result — compute avg monthly spending from recent active months.
-        //    Walk backwards from the most recent month; stop when 3 consecutive
-        //    zero months are encountered.
+        // 4. Build result — for each voter, compute avg 3-month spending
+        //    across all proposals they voted on.
         const result = [];
         for (const [voter, stats] of voterStats) {
-            const outflows = voterOutflows.get(voter);
-            let avgMonthlySpending = 0;
-            if (outflows && outflows.size > 0) {
-                const sortedMonths = [...outflows.keys()].sort();
-                // Generate all months from earliest to latest
-                const first = sortedMonths[0];
-                const last = sortedMonths[sortedMonths.length - 1];
-                const allMonths = [];
-                let [y, m] = first.split("-").map(Number);
-                const [ly, lm] = last.split("-").map(Number);
-                while (y < ly || (y === ly && m <= lm)) {
-                    allMonths.push(`${y}-${String(m).padStart(2, "0")}`);
-                    m++;
-                    if (m > 12) { m = 1; y++; }
+            const outflows = voterOutflows.get(voter) || new Map();
+            let avgSpending = 0;
+            let proposalsWithTs = 0;
+            for (const pid of stats.proposalIds) {
+                const ts = proposalTimestamps.get(pid);
+                if (!ts) continue;
+                const window = threeMonthsBefore(ts);
+                let total = 0;
+                for (const m of window) {
+                    total += outflows.get(m) || 0;
                 }
-                // Walk backwards, collect nonzero months, stop at 3 consecutive zeros
-                let consecutiveZeros = 0;
-                const activeAmounts = [];
-                for (let i = allMonths.length - 1; i >= 0; i--) {
-                    const val = outflows.get(allMonths[i]) || 0;
-                    if (val > 0) {
-                        activeAmounts.push(val);
-                        consecutiveZeros = 0;
-                    } else {
-                        consecutiveZeros++;
-                        if (consecutiveZeros >= 3) break;
-                    }
-                }
-                if (activeAmounts.length > 0) {
-                    avgMonthlySpending = Math.round(
-                        activeAmounts.reduce((a, b) => a + b, 0) / activeAmounts.length * 100
-                    ) / 100;
-                }
+                avgSpending += total;
+                proposalsWithTs++;
+            }
+            if (proposalsWithTs > 0) {
+                avgSpending = Math.round((avgSpending / proposalsWithTs) * 100) / 100;
             }
             result.push({
                 voter,
-                proposalsVoted: stats.proposals.size,
+                proposalsVoted: stats.proposalIds.size,
                 avgVotingPower: Math.round((stats.totalPower / stats.voteCount) * 100) / 100,
-                avgMonthlySpending,
+                avgSpending3mo: avgSpending,
                 isBusiness: acceptancePoints.has(voter),
                 name: nameMap.get(voter) || null,
             });
