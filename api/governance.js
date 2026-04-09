@@ -463,9 +463,11 @@ governance.get("/swap-voter-client-analysis", async function (req, res, next) {
 governance.get("/voter-highscore", async function (req, res, next) {
     try {
         // 0. Build acceptance-point and user-name lookups
-        const allCommunities = await db.getAllCommunities();
+        const communitiesWithAccounts = await db.communities
+            .find({}, { projection: { accounts: 1 } })
+            .toArray();
         const acceptancePoints = new Set();
-        for (const c of allCommunities) {
+        for (const c of communitiesWithAccounts) {
             if (c.accounts) c.accounts.forEach((a) => acceptancePoints.add(a));
         }
         const usersWithNames = await db.users
