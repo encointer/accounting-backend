@@ -449,4 +449,124 @@ governance.get("/swap-voter-client-analysis", async function (req, res, next) {
     }
 });
 
+/**
+ * @swagger
+ * /v1/governance/voter-highscore:
+ *   get:
+ *     description: Per-voter participation stats — proposals voted, avg voting power, monthly CC spending
+ *     tags:
+ *       - governance
+ *     responses:
+ *       '200':
+ *         description: Array of voter records sorted by proposals voted descending
+ */
+governance.get("/voter-highscore", async function (req, res, next) {
+    try {
+        // 1. Get all VotePlaced events and resolve voter addresses + power
+        const votePlaced = await db.events
+            .find({ section: "encointerDemocracy", method: "VotePlaced" })
+            .toArray();
+        const extIds = votePlaced.map((v) => v.extrinsicId);
+        const extrinsics = await db.extrinsics
+            .find({ _id: { $in: extIds } })
+            .toArray();
+        const extMap = new Map(extrinsics.map((e) => [e._id, e]));
+
+        // Aggregate per voter: proposals voted, total power
+        const voterStats = new Map(); // voter -> { proposals: Set, totalPower, voteCount }
+        for (const v of votePlaced) {
+            const ext = extMap.get(v.extrinsicId);
+            if (!ext) continue;
+            const pid = v.data?.proposalId ?? v.data?.[0];
+            const numVotes = v.data?.numVotes ?? v.data?.[2];
+            const voter = ext.signer?.Id;
+            if (!pid || !voter || !numVotes) continue;
+
+            if (!voterStats.has(voter)) {
+                voterStats.set(voter, { proposals: new Set(), totalPower: 0, voteCount: 0 });
+            }
+            const s = voterStats.get(voter);
+            s.proposals.add(pid);
+            s.totalPower += numVotes;
+            s.voteCount++;
+        }
+
+        // 2. Get all CC outgoing transfers per voter
+        const voters = [...voterStats.keys()];
+        const transfers = await db.events
+            .find({
+                section: "encointerBalances",
+                method: "Transferred",
+                "data.1": { $in: voters },
+            })
+            .toArray();
+
+        // Aggregate monthly outflows per voter
+        const voterOutflows = new Map(); // voter -> Map<"YYYY-MM", total>
+        for (const t of transfers) {
+            const sender = t.data[1];
+            const amount = typeof t.data[3] === "number" ? t.data[3] : parseFloat(t.data[3]) || 0;
+            const ts = t.timestamp;
+            if (!ts || !amount) continue;
+            const d = new Date(ts);
+            const month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+            if (!voterOutflows.has(sender)) voterOutflows.set(sender, new Map());
+            const months = voterOutflows.get(sender);
+            months.set(month, (months.get(month) || 0) + amount);
+        }
+
+        // 3. Build result — compute avg monthly spending from recent active months.
+        //    Walk backwards from the most recent month; stop when 3 consecutive
+        //    zero months are encountered.
+        const result = [];
+        for (const [voter, stats] of voterStats) {
+            const outflows = voterOutflows.get(voter);
+            let avgMonthlySpending = 0;
+            if (outflows && outflows.size > 0) {
+                const sortedMonths = [...outflows.keys()].sort();
+                // Generate all months from earliest to latest
+                const first = sortedMonths[0];
+                const last = sortedMonths[sortedMonths.length - 1];
+                const allMonths = [];
+                let [y, m] = first.split("-").map(Number);
+                const [ly, lm] = last.split("-").map(Number);
+                while (y < ly || (y === ly && m <= lm)) {
+                    allMonths.push(`${y}-${String(m).padStart(2, "0")}`);
+                    m++;
+                    if (m > 12) { m = 1; y++; }
+                }
+                // Walk backwards, collect nonzero months, stop at 3 consecutive zeros
+                let consecutiveZeros = 0;
+                const activeAmounts = [];
+                for (let i = allMonths.length - 1; i >= 0; i--) {
+                    const val = outflows.get(allMonths[i]) || 0;
+                    if (val > 0) {
+                        activeAmounts.push(val);
+                        consecutiveZeros = 0;
+                    } else {
+                        consecutiveZeros++;
+                        if (consecutiveZeros >= 3) break;
+                    }
+                }
+                if (activeAmounts.length > 0) {
+                    avgMonthlySpending = Math.round(
+                        activeAmounts.reduce((a, b) => a + b, 0) / activeAmounts.length * 100
+                    ) / 100;
+                }
+            }
+            result.push({
+                voter,
+                proposalsVoted: stats.proposals.size,
+                avgVotingPower: Math.round((stats.totalPower / stats.voteCount) * 100) / 100,
+                avgMonthlySpending,
+            });
+        }
+
+        result.sort((a, b) => b.proposalsVoted - a.proposalsVoted);
+        res.send(JSON.stringify(result));
+    } catch (e) {
+        next(e);
+    }
+});
+
 export default governance;
