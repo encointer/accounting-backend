@@ -771,15 +771,9 @@ accounting.get("/volume-report", async function (req, res, next) {
  *     responses:
  *          '200':
  *              description: Success
- *          '403':
- *              description: Permission denied
  */
 accounting.get("/reputables-by-cindex", async function (req, res, next) {
     try {
-        if (!req.session.isReadonlyAdmin) {
-            res.sendStatus(403);
-            return;
-        }
         const api = req.app.get("api");
         const cid = req.query.cid;
         const community = await db.getCommunity(cid);
