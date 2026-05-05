@@ -705,7 +705,7 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
  * @swagger
  * /v1/accounting/volume-report:
  *   get:
- *     description: Retrieve total volume for each month of the year
+ *     description: Retrieve total volume for each month of the year (public)
  *     parameters:
  *       - in: query
  *         name: year
@@ -724,15 +724,9 @@ accounting.get("/money-velocity-report", async function (req, res, next) {
  *     responses:
  *          '200':
  *              description: Success
- *          '403':
- *              description: Permission denied
  */
 accounting.get("/volume-report", async function (req, res, next) {
     try {
-        if (!req.session.isReadonlyAdmin) {
-            res.sendStatus(403);
-            return;
-        }
         const cid = req.query.cid;
 
         const community = await db.getCommunity(cid);
