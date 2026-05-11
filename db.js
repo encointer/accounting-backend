@@ -13,6 +13,7 @@ class Database {
         );
         this.indexer = this.dbClient.db("encointer-kusama-pindex");
         this.indexerAssetHub = this.dbClient.db("asset-hub-kusama");
+        this.indexerAssetHubPolkadot = this.dbClient.db("asset-hub-polkadot");
         this.blocks = this.indexer.collection("blocks");
         this.extrinsics = this.indexer.collection("extrinsics");
         this.events = this.indexer.collection("events");
