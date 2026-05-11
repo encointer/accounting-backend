@@ -1,14 +1,14 @@
 import express from "express";
 import { decodeAddress, encodeAddress } from "@polkadot/util-crypto";
 import db from "../db.js";
-import { getTreasuryByCid } from "../treasuryConfig.js";
+import { getAllTreasuries } from "../treasuryConfig.js";
 
 const KSM_SS58_PREFIX = 2;
 const USDC_GENERAL_INDEX = "1,337";
 const USDC_DECIMALS = 6;
 const KSM_DECIMALS = 12;
 // Bridge fees on small amounts can take up to ~19% of the sent amount; the
-// remaining 5% buffer absorbs variability between Polkadot/Kusama bridge hops.
+// remaining 6% buffer absorbs variability between Polkadot/Kusama bridge hops.
 const BRIDGE_FEE_TOLERANCE_PCT = 25n;
 // Bridge end-to-end delivery time observed in the indexer ranges up to ~11 min;
 // 30 min covers congestion and gives a generous match window.
@@ -21,10 +21,7 @@ const stripCommas = (s) =>
 const toBigInt = (s) => (s == null ? 0n : BigInt(stripCommas(s) ?? "0"));
 const sumBigInt = (arr) => arr.reduce((a, b) => a + b, 0n);
 
-/**
- * Re-encode an AccountId32 hex (0x...) to the Kusama-prefix ss58 string.
- * Returns null on malformed input.
- */
+/** Re-encode an AccountId32 hex (0x...) to Kusama-prefix ss58. */
 function hexToKsmSs58(hex) {
     if (typeof hex !== "string") return null;
     try {
@@ -34,12 +31,8 @@ function hexToKsmSs58(hex) {
     }
 }
 
-/**
- * Re-encode any ss58 address to Kusama prefix (2). Identity is keyed by public
- * key, not prefix — so to collapse "same donor, different prefix" rows in the
- * leaderboard we canonicalise every donor address before grouping. Returns the
- * input unchanged on decode failure.
- */
+/** Canonicalise any ss58 to Kusama prefix (2) so the same public key
+ *  collapses into a single donor row regardless of input encoding. */
 function toCanonicalSs58(ss58) {
     if (typeof ss58 !== "string") return ss58;
     try {
@@ -49,10 +42,8 @@ function toCanonicalSs58(ss58) {
     }
 }
 
-/**
- * Returns true if a `transferAssetsUsingTypeAndThen` args object targets the
- * Kusama ecosystem (parents: 2, X2[GlobalConsensus(Kusama), Parachain(_)]).
- */
+/** True if a `transferAssetsUsingTypeAndThen` args object targets the Kusama
+ *  ecosystem (parents:2, X2[GlobalConsensus(Kusama), Parachain(_)]). */
 function isKusamaBound(args) {
     const dest = args?.dest?.V5 || args?.dest?.V4;
     const gc = dest?.interior?.X2?.[0]?.GlobalConsensus;
@@ -61,13 +52,10 @@ function isKusamaBound(args) {
     return false;
 }
 
-/**
- * Yield every `polkadotXcm.transferAssetsUsingTypeAndThen`-like call args found
- * inside an extrinsic. The dapp wraps the donation in `utility.batchAll` (to
- * pre-swap USDC→DOT for bridge fees), so the source call may sit one level
- * below the top-level extrinsic. Supports both nested utility.batch* and
- * direct polkadotXcm.transferAssetsUsingTypeAndThen.
- */
+/** Yield every `polkadotXcm.transferAssetsUsingTypeAndThen`-like call args
+ *  found in an extrinsic. The dapp wraps cross-chain donations in
+ *  `utility.batchAll` (to pre-swap USDC→DOT for bridge fees), so the source
+ *  call may sit one level below the top-level extrinsic. */
 function extractTutCalls(extrinsic) {
     if (
         extrinsic.section === "polkadotXcm" &&
@@ -94,16 +82,11 @@ function extractTutCalls(extrinsic) {
     return [];
 }
 
-/**
- * Match a cross-chain KAH `foreignAssets.Deposited` event back to its source
- * PAH extrinsic by scanning DepositAsset beneficiaries within the bridge
- * delivery window. Looks at direct `polkadotXcm.transferAssetsUsingTypeAndThen`
- * AND `utility.batch*`-wrapped calls (the dapp's actual pattern when an
- * upfront USDC→DOT fee swap is needed).
- *
- * Returns the donor ss58 (top-level signer of the PAH extrinsic) if found.
- */
-async function findCrossChainDonor(dep, treasuryKahSs58) {
+/** Attribute a cross-chain KAH `foreignAssets.Deposited` event to the source
+ *  PAH extrinsic's signer. Supports direct `polkadotXcm.transferAssetsUsingTypeAndThen`
+ *  AND `utility.batch*`-wrapped variants (the dapp's actual pattern with an
+ *  upfront USDC→DOT fee swap). Both `Definite` and `Wild` deposits are matched. */
+async function findCrossChainDonor(dep) {
     const t = dep.timestamp;
     const depAmount = toBigInt(dep.data?.amount);
     const candidates = await db.indexerAssetHubPolkadot
@@ -118,9 +101,7 @@ async function findCrossChainDonor(dep, treasuryKahSs58) {
                 },
                 {
                     section: "utility",
-                    method: {
-                        $in: ["batch", "batchAll", "forceBatch"],
-                    },
+                    method: { $in: ["batch", "batchAll", "forceBatch"] },
                     "args.calls.section": "polkadotXcm",
                     "args.calls.method": "transferAssetsUsingTypeAndThen",
                 },
@@ -128,12 +109,11 @@ async function findCrossChainDonor(dep, treasuryKahSs58) {
         })
         .toArray();
 
+    const treasuryKahSs58 = dep.data?.who;
     for (const x of candidates) {
         const inner = extractTutCalls(x);
         for (const args of inner) {
             if (!isKusamaBound(args)) continue;
-            // Total source-side amount being transferred (used as upper bound
-            // for Wild deposit attribution).
             const totalAssets =
                 args?.assets?.V5 || args?.assets?.V4 || [];
             const totalSrcAmt = totalAssets.reduce((acc, a) => {
@@ -153,8 +133,6 @@ async function findCrossChainDonor(dep, treasuryKahSs58) {
                 const benSs58 = hexToKsmSs58(benHex);
                 if (benSs58 !== treasuryKahSs58) continue;
 
-                // Definite: amount-bound check (avoids attributing a tiny
-                // unrelated source to a large destination inflow).
                 const definite = dep2.assets?.Definite;
                 if (Array.isArray(definite)) {
                     for (const a of definite) {
@@ -172,11 +150,8 @@ async function findCrossChainDonor(dep, treasuryKahSs58) {
                     }
                 }
 
-                // Wild: "deposit residue to this beneficiary". The exact amount
-                // is computed at destination after BuyExecution + earlier
-                // Definite deposits. Match on beneficiary alone, but require
-                // the source's total transferred amount to be plausible
-                // (≥ depAmount, otherwise it can't be the source).
+                // Wild: residue goes to this beneficiary. Match on beneficiary
+                // alone, but require source total ≥ depAmount as a sanity floor.
                 if (dep2.assets?.Wild && totalSrcAmt >= depAmount) {
                     return x.signer?.Id ?? null;
                 }
@@ -186,63 +161,94 @@ async function findCrossChainDonor(dep, treasuryKahSs58) {
     return null;
 }
 
-/**
- * Build the donor leaderboard for a USDC treasury on KAH.
- */
-async function leaderboardUsdcTreasury(treasury) {
-    const kahAccount = treasury.kahAccount;
+/** Aggregate donor leaderboard for USDC across every treasury. Donor counts
+ *  reflect distinct donation events; totals sum across all treasuries. */
+async function leaderboardUsdcAggregate() {
+    const treasuries = getAllTreasuries();
+    const kahAccounts = treasuries.map((t) => t.kahAccount);
 
-    // Same-chain donations: foreignAssets.Transferred where data.to === treasury
-    const sameChainAgg = await db.indexerAssetHub
-        .collection("events")
-        .aggregate([
-            {
-                $match: {
-                    section: "foreignAssets",
-                    method: "Transferred",
-                    "data.to": kahAccount,
-                    "data.assetId.interior.X4.3.GeneralIndex":
-                        USDC_GENERAL_INDEX,
+    const [sameChainAgg, crossChainEvents, outAgg] = await Promise.all([
+        db.indexerAssetHub
+            .collection("events")
+            .aggregate([
+                {
+                    $match: {
+                        section: "foreignAssets",
+                        method: "Transferred",
+                        "data.to": { $in: kahAccounts },
+                        "data.assetId.interior.X4.3.GeneralIndex":
+                            USDC_GENERAL_INDEX,
+                    },
                 },
-            },
-            {
-                $group: {
-                    _id: "$data.from",
-                    count: { $sum: 1 },
-                    totalRaw: {
-                        $sum: {
-                            $toLong: {
-                                $replaceAll: {
-                                    input: "$data.amount",
-                                    find: ",",
-                                    replacement: "",
+                {
+                    $group: {
+                        _id: "$data.from",
+                        count: { $sum: 1 },
+                        totalRaw: {
+                            $sum: {
+                                $toLong: {
+                                    $replaceAll: {
+                                        input: "$data.amount",
+                                        find: ",",
+                                        replacement: "",
+                                    },
                                 },
                             },
                         },
                     },
                 },
-            },
-        ])
-        .toArray();
+            ])
+            .toArray(),
+        db.indexerAssetHub
+            .collection("events")
+            .find({
+                section: "foreignAssets",
+                method: "Deposited",
+                "data.who": { $in: kahAccounts },
+                "data.assetId.interior.X4.3.GeneralIndex": USDC_GENERAL_INDEX,
+            })
+            .sort({ timestamp: 1 })
+            .toArray(),
+        db.indexerAssetHub
+            .collection("events")
+            .aggregate([
+                {
+                    $match: {
+                        section: "foreignAssets",
+                        "data.assetId.interior.X4.3.GeneralIndex":
+                            USDC_GENERAL_INDEX,
+                        $or: [
+                            { method: "Transferred", "data.from": { $in: kahAccounts } },
+                            { method: "Withdrawn", "data.who": { $in: kahAccounts } },
+                            { method: "Burned", "data.owner": { $in: kahAccounts } },
+                        ],
+                    },
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalRaw: {
+                            $sum: {
+                                $toLong: {
+                                    $replaceAll: {
+                                        input: "$data.amount",
+                                        find: ",",
+                                        replacement: "",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            ])
+            .toArray(),
+    ]);
 
-    // Cross-chain inflows: foreignAssets.Deposited where data.who === treasury.
-    // Attribute each to the source PAH signer if reachable, else "anonymous".
-    const crossChainEvents = await db.indexerAssetHub
-        .collection("events")
-        .find({
-            section: "foreignAssets",
-            method: "Deposited",
-            "data.who": kahAccount,
-            "data.assetId.interior.X4.3.GeneralIndex": USDC_GENERAL_INDEX,
-        })
-        .sort({ timestamp: 1 })
-        .toArray();
-
-    const crossChainAnonymous = [];
+    const crossChainUnidentified = [];
     const crossChainByDonor = new Map();
     for (const e of crossChainEvents) {
         const amt = toBigInt(e.data?.amount);
-        const donor = await findCrossChainDonor(e, kahAccount);
+        const donor = await findCrossChainDonor(e);
         if (donor) {
             const key = toCanonicalSs58(donor);
             const prev = crossChainByDonor.get(key) ?? {
@@ -253,51 +259,13 @@ async function leaderboardUsdcTreasury(treasury) {
             prev.totalRaw += amt;
             crossChainByDonor.set(key, prev);
         } else {
-            crossChainAnonymous.push({
+            crossChainUnidentified.push({
                 timestamp: e.timestamp,
                 amountRaw: amt.toString(),
             });
         }
     }
 
-    // Outflows: same-chain transfers OUT, plus burned (XCM/swap-credit exits).
-    const outAgg = await db.indexerAssetHub
-        .collection("events")
-        .aggregate([
-            {
-                $match: {
-                    section: "foreignAssets",
-                    "data.assetId.interior.X4.3.GeneralIndex":
-                        USDC_GENERAL_INDEX,
-                    $or: [
-                        { method: "Transferred", "data.from": kahAccount },
-                        { method: "Withdrawn", "data.who": kahAccount },
-                        { method: "Burned", "data.owner": kahAccount },
-                    ],
-                },
-            },
-            {
-                $group: {
-                    _id: null,
-                    totalRaw: {
-                        $sum: {
-                            $toLong: {
-                                $replaceAll: {
-                                    input: "$data.amount",
-                                    find: ",",
-                                    replacement: "",
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        ])
-        .toArray();
-
-    // Merge same-chain + cross-chain into a single ranked donor list, keyed
-    // by canonical (Kusama-prefix) ss58 so the same donor donating from both
-    // a Kusama-encoded and a Polkadot-encoded address collapses into one row.
     const donorMap = new Map();
     for (const r of sameChainAgg) {
         if (!r._id) continue;
@@ -327,114 +295,131 @@ async function leaderboardUsdcTreasury(treasury) {
 
     const totalInflowsRaw =
         sumBigInt(sameChainAgg.map((r) => BigInt(r.totalRaw))) +
-        sumBigInt(
-            [...crossChainByDonor.values()].map((v) => v.totalRaw),
-        ) +
-        sumBigInt(
-            crossChainAnonymous.map((a) => BigInt(a.amountRaw)),
-        );
+        sumBigInt([...crossChainByDonor.values()].map((v) => v.totalRaw)) +
+        sumBigInt(crossChainUnidentified.map((a) => BigInt(a.amountRaw)));
     const totalOutflowsRaw = BigInt(outAgg[0]?.totalRaw ?? 0);
 
     return {
-        recipient: {
-            name: treasury.name,
-            cid: treasury.cid,
-            kahAccount: treasury.kahAccount,
-            encointerAccount: treasury.address,
-        },
         token: "USDC",
         decimals: USDC_DECIMALS,
         totalInflowsRaw: totalInflowsRaw.toString(),
         totalOutflowsRaw: totalOutflowsRaw.toString(),
         donors,
-        crossChainAnonymous,
+        crossChainUnidentified,
     };
 }
 
-/**
- * Build the donor leaderboard for an Encointer KSM faucet.
- */
-async function leaderboardKsmFaucet(account, registryEntry) {
-    const sameChainAgg = await db.events
-        .aggregate([
-            {
-                $match: {
-                    section: "balances",
-                    method: "Transfer",
-                    "data.to": account,
-                },
-            },
-            {
-                $group: {
-                    _id: "$data.from",
-                    count: { $sum: 1 },
-                    totalRaw: {
-                        $sum: {
-                            $toLong: {
-                                $replaceAll: {
-                                    input: "$data.amount",
-                                    find: ",",
-                                    replacement: "",
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        ])
-        .toArray();
-
-    // XCM-delivered deposits land as balances.Deposit (anonymous from our perspective)
-    const xcmDeposits = await db.events
+/** Discover all-time faucet accounts from the Encointer indexer. */
+async function discoverFaucetAccounts() {
+    const created = await db.events
         .find({
-            section: "balances",
-            method: "Deposit",
-            "data.who": account,
+            section: "encointerFaucet",
+            method: "FaucetCreated",
         })
-        .sort({ timestamp: 1 })
+        .sort({ blockNumber: 1 })
         .toArray();
+    // FaucetCreated data shape (positional): [faucetAccount, name].
+    // No Closed/Drained/Dissolved events emitted by the current pallet.
+    return created
+        .map((e) => {
+            const data = e.data ?? [];
+            return data[0] ?? null;
+        })
+        .filter(Boolean);
+}
 
-    const outAgg = await db.events
-        .aggregate([
-            {
-                $match: {
-                    section: "balances",
-                    $or: [
-                        { method: "Transfer", "data.from": account },
-                        { method: "Withdraw", "data.who": account },
-                    ],
+/** Aggregate donor leaderboard for KSM across every faucet. */
+async function leaderboardKsmAggregate() {
+    const accounts = await discoverFaucetAccounts();
+    if (accounts.length === 0) {
+        return {
+            token: "KSM",
+            decimals: KSM_DECIMALS,
+            totalInflowsRaw: "0",
+            totalOutflowsRaw: "0",
+            donors: [],
+            crossChainUnidentified: [],
+        };
+    }
+
+    const [sameChainAgg, xcmDeposits, outAgg] = await Promise.all([
+        db.events
+            .aggregate([
+                {
+                    $match: {
+                        section: "balances",
+                        method: "Transfer",
+                        "data.to": { $in: accounts },
+                    },
                 },
-            },
-            {
-                $group: {
-                    _id: null,
-                    totalRaw: {
-                        $sum: {
-                            $toLong: {
-                                $replaceAll: {
-                                    input: "$data.amount",
-                                    find: ",",
-                                    replacement: "",
+                {
+                    $group: {
+                        _id: "$data.from",
+                        count: { $sum: 1 },
+                        totalRaw: {
+                            $sum: {
+                                $toLong: {
+                                    $replaceAll: {
+                                        input: "$data.amount",
+                                        find: ",",
+                                        replacement: "",
+                                    },
                                 },
                             },
                         },
                     },
                 },
-            },
-        ])
-        .toArray();
+            ])
+            .toArray(),
+        db.events
+            .find({
+                section: "balances",
+                method: "Deposit",
+                "data.who": { $in: accounts },
+            })
+            .sort({ timestamp: 1 })
+            .toArray(),
+        db.events
+            .aggregate([
+                {
+                    $match: {
+                        section: "balances",
+                        $or: [
+                            { method: "Transfer", "data.from": { $in: accounts } },
+                            { method: "Withdraw", "data.who": { $in: accounts } },
+                        ],
+                    },
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalRaw: {
+                            $sum: {
+                                $toLong: {
+                                    $replaceAll: {
+                                        input: "$data.amount",
+                                        find: ",",
+                                        replacement: "",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            ])
+            .toArray(),
+    ]);
 
-    // Collapse same-key donors across prefixes by canonicalising to Kusama ss58.
-    const faucetDonorMap = new Map();
+    const donorMap = new Map();
     for (const r of sameChainAgg) {
         if (!r._id) continue;
         const key = toCanonicalSs58(r._id);
-        const prev = faucetDonorMap.get(key) ?? { count: 0, totalRaw: 0n };
+        const prev = donorMap.get(key) ?? { count: 0, totalRaw: 0n };
         prev.count += r.count;
         prev.totalRaw += BigInt(r.totalRaw);
-        faucetDonorMap.set(key, prev);
+        donorMap.set(key, prev);
     }
-    const donors = [...faucetDonorMap.entries()]
+    const donors = [...donorMap.entries()]
         .map(([ss58, v]) => ({
             ss58,
             count: v.count,
@@ -453,16 +438,12 @@ async function leaderboardKsmFaucet(account, registryEntry) {
     );
 
     return {
-        recipient: {
-            name: registryEntry?.name ?? account,
-            account,
-        },
         token: "KSM",
         decimals: KSM_DECIMALS,
         totalInflowsRaw: (sameChainTotal + xcmDepositTotal).toString(),
         totalOutflowsRaw: BigInt(outAgg[0]?.totalRaw ?? 0).toString(),
         donors,
-        crossChainAnonymous: xcmDeposits.map((e) => ({
+        crossChainUnidentified: xcmDeposits.map((e) => ({
             timestamp: e.timestamp,
             amountRaw: toBigInt(e.data?.amount).toString(),
         })),
@@ -470,90 +451,29 @@ async function leaderboardKsmFaucet(account, registryEntry) {
 }
 
 /**
- * Scrape the indexer for all-time faucets. Drained / closed faucets are
- * filtered out so the registry reflects what's currently active.
- *
- * Returns: [{ account, name, createdAtBlock, amountRaw, dripRaw, signer }]
- */
-async function discoverFaucets() {
-    const created = await db.events
-        .find({
-            section: "encointerFaucet",
-            method: "FaucetCreated",
-        })
-        .sort({ blockNumber: 1 })
-        .toArray();
-
-    // FaucetCreated event data shape (positional): [faucetAccount, name].
-    // No Closed/Drained/Dissolved events emitted by the current pallet; all
-    // discovered faucets are considered live.
-    const out = [];
-    for (const e of created) {
-        const data = e.data ?? [];
-        const account = data[0] ?? null;
-        const name = typeof data[1] === "string" ? data[1] : null;
-        if (!account) continue;
-        out.push({ account, name, createdAtBlock: e.blockNumber });
-    }
-    return out;
-}
-
-/**
  * @swagger
- * /v1/leaderboard/{cid}:
+ * /v1/leaderboard:
  *   get:
- *     description: Donor leaderboard for a community treasury (USDC on KAH).
+ *     description: Aggregate donor leaderboard for a token across every
+ *       recipient (USDC across treasuries, KSM across faucets).
  *     parameters:
- *       - in: path
- *         name: cid
- *         required: true
- *         schema: { type: string }
  *       - in: query
  *         name: token
  *         schema: { type: string, default: USDC }
  *     responses:
  *       '200': { description: Success }
- *       '404': { description: Unknown community }
- *       '400': { description: Unsupported token for this recipient }
+ *       '400': { description: Unsupported token }
  */
-leaderboard.get("/:cid", async function (req, res, next) {
+leaderboard.get("/", async function (req, res, next) {
     try {
-        const cid = req.params.cid;
         const token = String(req.query.token ?? "USDC").toUpperCase();
-        const treasury = getTreasuryByCid(cid);
-        if (!treasury) return res.status(404).send({ error: "unknown cid" });
-        if (token !== "USDC") {
-            return res
-                .status(400)
-                .send({ error: "only USDC supported for treasuries" });
+        if (token === "USDC") {
+            return res.send(await leaderboardUsdcAggregate());
         }
-        const result = await leaderboardUsdcTreasury(treasury);
-        res.send(result);
-    } catch (e) {
-        next(e);
-    }
-});
-
-/**
- * @swagger
- * /v1/leaderboard/faucets:
- *   get:
- *     description: Donor leaderboards for every active Encointer KSM faucet.
- *     responses:
- *       '200': { description: Success }
- */
-leaderboard.get("/faucets/all", async function (req, res, next) {
-    try {
-        const registry = await discoverFaucets();
-        const faucets = await Promise.all(
-            registry.map((entry) =>
-                leaderboardKsmFaucet(entry.account, entry).then((board) => ({
-                    ...board,
-                    createdAtBlock: entry.createdAtBlock,
-                })),
-            ),
-        );
-        res.send({ faucets });
+        if (token === "KSM") {
+            return res.send(await leaderboardKsmAggregate());
+        }
+        return res.status(400).send({ error: "unsupported token" });
     } catch (e) {
         next(e);
     }

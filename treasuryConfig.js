@@ -92,6 +92,13 @@ export function getTreasuryByCid(cid) {
     return null;
 }
 
+export function getAllTreasuries() {
+    return Object.entries(treasuryMap).map(([address, info]) => ({
+        address,
+        ...info,
+    }));
+}
+
 // Foreign asset ID for querying Asset Hub foreignAssets pallet
 export const USDC_FOREIGN_ASSET_ID = {
     parents: 2,
