@@ -13,13 +13,14 @@ const BRIDGE_FEE_TOLERANCE_PCT = 25n;
 // Bridge end-to-end delivery time observed in the indexer ranges up to ~11 min;
 // 30 min covers congestion and gives a generous match window.
 const BRIDGE_DELIVERY_WINDOW_MS = 30 * 60 * 1000;
+// Bump when matching/attribution logic changes; old caches are invalidated.
+const CACHE_VERSION = 1;
 
 const leaderboard = express.Router();
 
 const stripCommas = (s) =>
     s == null ? null : String(s).replace(/,/g, "");
 const toBigInt = (s) => (s == null ? 0n : BigInt(stripCommas(s) ?? "0"));
-const sumBigInt = (arr) => arr.reduce((a, b) => a + b, 0n);
 
 /** Re-encode an AccountId32 hex (0x...) to Kusama-prefix ss58. */
 function hexToKsmSs58(hex) {
@@ -54,8 +55,7 @@ function isKusamaBound(args) {
 
 /** Yield every `polkadotXcm.transferAssetsUsingTypeAndThen`-like call args
  *  found in an extrinsic. The dapp wraps cross-chain donations in
- *  `utility.batchAll` (to pre-swap USDC→DOT for bridge fees), so the source
- *  call may sit one level below the top-level extrinsic. */
+ *  `utility.batchAll` (to pre-swap USDC→DOT for bridge fees). */
 function extractTutCalls(extrinsic) {
     if (
         extrinsic.section === "polkadotXcm" &&
@@ -83,9 +83,9 @@ function extractTutCalls(extrinsic) {
 }
 
 /** Attribute a cross-chain KAH `foreignAssets.Deposited` event to the source
- *  PAH extrinsic's signer. Supports direct `polkadotXcm.transferAssetsUsingTypeAndThen`
- *  AND `utility.batch*`-wrapped variants (the dapp's actual pattern with an
- *  upfront USDC→DOT fee swap). Both `Definite` and `Wild` deposits are matched. */
+ *  PAH extrinsic's signer. Supports `polkadotXcm.transferAssetsUsingTypeAndThen`
+ *  directly AND `utility.batch*`-wrapped variants. Both `Definite` and `Wild`
+ *  deposits are matched. */
 async function findCrossChainDonor(dep) {
     const t = dep.timestamp;
     const depAmount = toBigInt(dep.data?.amount);
@@ -150,8 +150,6 @@ async function findCrossChainDonor(dep) {
                     }
                 }
 
-                // Wild: residue goes to this beneficiary. Match on beneficiary
-                // alone, but require source total ≥ depAmount as a sanity floor.
                 if (dep2.assets?.Wild && totalSrcAmt >= depAmount) {
                     return x.signer?.Id ?? null;
                 }
@@ -161,156 +159,148 @@ async function findCrossChainDonor(dep) {
     return null;
 }
 
-/** Aggregate donor leaderboard for USDC across every treasury. Donor counts
- *  reflect distinct donation events; totals sum across all treasuries. */
-async function leaderboardUsdcAggregate() {
-    const treasuries = getAllTreasuries();
-    const kahAccounts = treasuries.map((t) => t.kahAccount);
+// ─── Incremental cache ─────────────────────────────────────────────────────
+// State shape per token:
+//   {
+//     version: number,
+//     cursorBlock: number,              // max blockNumber processed
+//     donors: { [ss58]: { count, totalRaw: string } },
+//     crossChainUnidentified: [{ timestamp, amountRaw }],
+//     totalOutflowsRaw: string
+//   }
+// Total inflow is recomputed at response time from donors + unidentified.
 
-    const [sameChainAgg, crossChainEvents, outAgg] = await Promise.all([
-        db.indexerAssetHub
-            .collection("events")
-            .aggregate([
-                {
-                    $match: {
-                        section: "foreignAssets",
-                        method: "Transferred",
-                        "data.to": { $in: kahAccounts },
-                        "data.assetId.interior.X4.3.GeneralIndex":
-                            USDC_GENERAL_INDEX,
-                    },
-                },
-                {
-                    $group: {
-                        _id: "$data.from",
-                        count: { $sum: 1 },
-                        totalRaw: {
-                            $sum: {
-                                $toLong: {
-                                    $replaceAll: {
-                                        input: "$data.amount",
-                                        find: ",",
-                                        replacement: "",
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            ])
-            .toArray(),
-        db.indexerAssetHub
-            .collection("events")
-            .find({
-                section: "foreignAssets",
-                method: "Deposited",
-                "data.who": { $in: kahAccounts },
-                "data.assetId.interior.X4.3.GeneralIndex": USDC_GENERAL_INDEX,
-            })
-            .sort({ timestamp: 1 })
-            .toArray(),
-        db.indexerAssetHub
-            .collection("events")
-            .aggregate([
-                {
-                    $match: {
-                        section: "foreignAssets",
-                        "data.assetId.interior.X4.3.GeneralIndex":
-                            USDC_GENERAL_INDEX,
-                        $or: [
-                            { method: "Transferred", "data.from": { $in: kahAccounts } },
-                            { method: "Withdrawn", "data.who": { $in: kahAccounts } },
-                            { method: "Burned", "data.owner": { $in: kahAccounts } },
-                        ],
-                    },
-                },
-                {
-                    $group: {
-                        _id: null,
-                        totalRaw: {
-                            $sum: {
-                                $toLong: {
-                                    $replaceAll: {
-                                        input: "$data.amount",
-                                        find: ",",
-                                        replacement: "",
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            ])
-            .toArray(),
-    ]);
+function emptyState() {
+    return {
+        version: CACHE_VERSION,
+        cursorBlock: 0,
+        donors: {},
+        crossChainUnidentified: [],
+        totalOutflowsRaw: "0",
+    };
+}
 
-    const crossChainUnidentified = [];
-    const crossChainByDonor = new Map();
-    for (const e of crossChainEvents) {
-        const amt = toBigInt(e.data?.amount);
-        const donor = await findCrossChainDonor(e);
-        if (donor) {
-            const key = toCanonicalSs58(donor);
-            const prev = crossChainByDonor.get(key) ?? {
-                count: 0,
-                totalRaw: 0n,
-            };
-            prev.count += 1;
-            prev.totalRaw += amt;
-            crossChainByDonor.set(key, prev);
-        } else {
-            crossChainUnidentified.push({
-                timestamp: e.timestamp,
-                amountRaw: amt.toString(),
-            });
-        }
-    }
+async function loadState(token) {
+    const rows = await db.getFromGeneralCache("leaderboard", { token });
+    if (rows.length === 0) return emptyState();
+    const s = rows[0];
+    if (!s || s.version !== CACHE_VERSION) return emptyState();
+    return s;
+}
 
-    const donorMap = new Map();
-    for (const r of sameChainAgg) {
-        if (!r._id) continue;
-        const key = toCanonicalSs58(r._id);
-        const prev = donorMap.get(key) ?? { count: 0, totalRaw: 0n };
-        prev.count += r.count;
-        prev.totalRaw += BigInt(r.totalRaw);
-        donorMap.set(key, prev);
-    }
-    for (const [ss58, agg] of crossChainByDonor) {
-        const prev = donorMap.get(ss58) ?? { count: 0, totalRaw: 0n };
-        prev.count += agg.count;
-        prev.totalRaw += agg.totalRaw;
-        donorMap.set(ss58, prev);
-    }
+async function saveState(token, state) {
+    await db.insertIntoGeneralCache("leaderboard", { token }, state);
+}
 
-    const donors = [...donorMap.entries()]
+function addDonor(donors, ss58, amount) {
+    const key = toCanonicalSs58(ss58);
+    const cur = donors[key] ?? { count: 0, totalRaw: "0" };
+    donors[key] = {
+        count: cur.count + 1,
+        totalRaw: (BigInt(cur.totalRaw) + amount).toString(),
+    };
+}
+
+function renderState(state, token, decimals) {
+    const donors = Object.entries(state.donors)
         .map(([ss58, v]) => ({
             ss58,
             count: v.count,
-            totalRaw: v.totalRaw.toString(),
+            totalRaw: v.totalRaw,
         }))
         .sort((a, b) => {
             const d = BigInt(b.totalRaw) - BigInt(a.totalRaw);
             return d > 0n ? 1 : d < 0n ? -1 : 0;
         });
-
-    const totalInflowsRaw =
-        sumBigInt(sameChainAgg.map((r) => BigInt(r.totalRaw))) +
-        sumBigInt([...crossChainByDonor.values()].map((v) => v.totalRaw)) +
-        sumBigInt(crossChainUnidentified.map((a) => BigInt(a.amountRaw)));
-    const totalOutflowsRaw = BigInt(outAgg[0]?.totalRaw ?? 0);
-
+    const totalInflows =
+        donors.reduce((s, d) => s + BigInt(d.totalRaw), 0n) +
+        state.crossChainUnidentified.reduce(
+            (s, a) => s + BigInt(a.amountRaw),
+            0n,
+        );
     return {
-        token: "USDC",
-        decimals: USDC_DECIMALS,
-        totalInflowsRaw: totalInflowsRaw.toString(),
-        totalOutflowsRaw: totalOutflowsRaw.toString(),
+        token,
+        decimals,
+        totalInflowsRaw: totalInflows.toString(),
+        totalOutflowsRaw: state.totalOutflowsRaw,
         donors,
-        crossChainUnidentified,
+        crossChainUnidentified: state.crossChainUnidentified,
     };
 }
 
-/** Discover all-time faucet accounts from the Encointer indexer. */
+// ─── USDC across treasuries (KAH) ───────────────────────────────────────────
+
+async function buildUsdcLeaderboard() {
+    const state = await loadState("USDC");
+    const treasuries = getAllTreasuries();
+    const kahAccounts = treasuries.map((t) => t.kahAccount);
+    const kahSet = new Set(kahAccounts);
+
+    const newEvents = await db.indexerAssetHub
+        .collection("events")
+        .find({
+            section: "foreignAssets",
+            "data.assetId.interior.X4.3.GeneralIndex": USDC_GENERAL_INDEX,
+            blockNumber: { $gt: state.cursorBlock },
+            $or: [
+                { method: "Transferred", "data.to": { $in: kahAccounts } },
+                { method: "Transferred", "data.from": { $in: kahAccounts } },
+                { method: "Deposited", "data.who": { $in: kahAccounts } },
+                { method: "Withdrawn", "data.who": { $in: kahAccounts } },
+                { method: "Burned", "data.owner": { $in: kahAccounts } },
+            ],
+        })
+        .sort({ blockNumber: 1 })
+        .toArray();
+
+    let maxBlock = state.cursorBlock;
+    const donors = { ...state.donors };
+    const unident = [...state.crossChainUnidentified];
+    let outflows = BigInt(state.totalOutflowsRaw || "0");
+
+    for (const e of newEvents) {
+        if (e.blockNumber > maxBlock) maxBlock = e.blockNumber;
+        const amt = toBigInt(e.data?.amount);
+        const m = e.method;
+        if (m === "Transferred") {
+            if (kahSet.has(e.data?.to)) {
+                addDonor(donors, e.data?.from, amt);
+            } else if (kahSet.has(e.data?.from)) {
+                outflows += amt;
+            }
+        } else if (m === "Deposited" && kahSet.has(e.data?.who)) {
+            const donor = await findCrossChainDonor(e);
+            if (donor) {
+                addDonor(donors, donor, amt);
+            } else {
+                unident.push({
+                    timestamp: e.timestamp,
+                    amountRaw: amt.toString(),
+                });
+            }
+        } else if (m === "Withdrawn" && kahSet.has(e.data?.who)) {
+            outflows += amt;
+        } else if (m === "Burned" && kahSet.has(e.data?.owner)) {
+            outflows += amt;
+        }
+    }
+
+    const next = {
+        version: CACHE_VERSION,
+        cursorBlock: maxBlock,
+        donors,
+        crossChainUnidentified: unident,
+        totalOutflowsRaw: outflows.toString(),
+    };
+    if (newEvents.length > 0) await saveState("USDC", next);
+    return renderState(next, "USDC", USDC_DECIMALS);
+}
+
+// ─── KSM across faucets (Encointer) ─────────────────────────────────────────
+
 async function discoverFaucetAccounts() {
+    // FaucetCreated event data shape (positional): [faucetAccount, name].
+    // No Closed/Drained/Dissolved events emitted by the current pallet.
     const created = await db.events
         .find({
             section: "encointerFaucet",
@@ -318,136 +308,67 @@ async function discoverFaucetAccounts() {
         })
         .sort({ blockNumber: 1 })
         .toArray();
-    // FaucetCreated data shape (positional): [faucetAccount, name].
-    // No Closed/Drained/Dissolved events emitted by the current pallet.
     return created
-        .map((e) => {
-            const data = e.data ?? [];
-            return data[0] ?? null;
-        })
+        .map((e) => (e.data ?? [])[0] ?? null)
         .filter(Boolean);
 }
 
-/** Aggregate donor leaderboard for KSM across every faucet. */
-async function leaderboardKsmAggregate() {
+async function buildKsmLeaderboard() {
+    const state = await loadState("KSM");
     const accounts = await discoverFaucetAccounts();
     if (accounts.length === 0) {
-        return {
-            token: "KSM",
-            decimals: KSM_DECIMALS,
-            totalInflowsRaw: "0",
-            totalOutflowsRaw: "0",
-            donors: [],
-            crossChainUnidentified: [],
-        };
+        return renderState(emptyState(), "KSM", KSM_DECIMALS);
+    }
+    const accountSet = new Set(accounts);
+
+    const newEvents = await db.events
+        .find({
+            section: "balances",
+            blockNumber: { $gt: state.cursorBlock },
+            $or: [
+                { method: "Transfer", "data.to": { $in: accounts } },
+                { method: "Transfer", "data.from": { $in: accounts } },
+                { method: "Deposit", "data.who": { $in: accounts } },
+                { method: "Withdraw", "data.who": { $in: accounts } },
+            ],
+        })
+        .sort({ blockNumber: 1 })
+        .toArray();
+
+    let maxBlock = state.cursorBlock;
+    const donors = { ...state.donors };
+    const unident = [...state.crossChainUnidentified];
+    let outflows = BigInt(state.totalOutflowsRaw || "0");
+
+    for (const e of newEvents) {
+        if (e.blockNumber > maxBlock) maxBlock = e.blockNumber;
+        const amt = toBigInt(e.data?.amount);
+        const m = e.method;
+        if (m === "Transfer") {
+            if (accountSet.has(e.data?.to)) {
+                addDonor(donors, e.data?.from, amt);
+            } else if (accountSet.has(e.data?.from)) {
+                outflows += amt;
+            }
+        } else if (m === "Deposit" && accountSet.has(e.data?.who)) {
+            unident.push({
+                timestamp: e.timestamp,
+                amountRaw: amt.toString(),
+            });
+        } else if (m === "Withdraw" && accountSet.has(e.data?.who)) {
+            outflows += amt;
+        }
     }
 
-    const [sameChainAgg, xcmDeposits, outAgg] = await Promise.all([
-        db.events
-            .aggregate([
-                {
-                    $match: {
-                        section: "balances",
-                        method: "Transfer",
-                        "data.to": { $in: accounts },
-                    },
-                },
-                {
-                    $group: {
-                        _id: "$data.from",
-                        count: { $sum: 1 },
-                        totalRaw: {
-                            $sum: {
-                                $toLong: {
-                                    $replaceAll: {
-                                        input: "$data.amount",
-                                        find: ",",
-                                        replacement: "",
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            ])
-            .toArray(),
-        db.events
-            .find({
-                section: "balances",
-                method: "Deposit",
-                "data.who": { $in: accounts },
-            })
-            .sort({ timestamp: 1 })
-            .toArray(),
-        db.events
-            .aggregate([
-                {
-                    $match: {
-                        section: "balances",
-                        $or: [
-                            { method: "Transfer", "data.from": { $in: accounts } },
-                            { method: "Withdraw", "data.who": { $in: accounts } },
-                        ],
-                    },
-                },
-                {
-                    $group: {
-                        _id: null,
-                        totalRaw: {
-                            $sum: {
-                                $toLong: {
-                                    $replaceAll: {
-                                        input: "$data.amount",
-                                        find: ",",
-                                        replacement: "",
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            ])
-            .toArray(),
-    ]);
-
-    const donorMap = new Map();
-    for (const r of sameChainAgg) {
-        if (!r._id) continue;
-        const key = toCanonicalSs58(r._id);
-        const prev = donorMap.get(key) ?? { count: 0, totalRaw: 0n };
-        prev.count += r.count;
-        prev.totalRaw += BigInt(r.totalRaw);
-        donorMap.set(key, prev);
-    }
-    const donors = [...donorMap.entries()]
-        .map(([ss58, v]) => ({
-            ss58,
-            count: v.count,
-            totalRaw: v.totalRaw.toString(),
-        }))
-        .sort((a, b) => {
-            const d = BigInt(b.totalRaw) - BigInt(a.totalRaw);
-            return d > 0n ? 1 : d < 0n ? -1 : 0;
-        });
-
-    const sameChainTotal = sumBigInt(
-        sameChainAgg.map((r) => BigInt(r.totalRaw)),
-    );
-    const xcmDepositTotal = sumBigInt(
-        xcmDeposits.map((e) => toBigInt(e.data?.amount)),
-    );
-
-    return {
-        token: "KSM",
-        decimals: KSM_DECIMALS,
-        totalInflowsRaw: (sameChainTotal + xcmDepositTotal).toString(),
-        totalOutflowsRaw: BigInt(outAgg[0]?.totalRaw ?? 0).toString(),
+    const next = {
+        version: CACHE_VERSION,
+        cursorBlock: maxBlock,
         donors,
-        crossChainUnidentified: xcmDeposits.map((e) => ({
-            timestamp: e.timestamp,
-            amountRaw: toBigInt(e.data?.amount).toString(),
-        })),
+        crossChainUnidentified: unident,
+        totalOutflowsRaw: outflows.toString(),
     };
+    if (newEvents.length > 0) await saveState("KSM", next);
+    return renderState(next, "KSM", KSM_DECIMALS);
 }
 
 /**
@@ -468,10 +389,10 @@ leaderboard.get("/", async function (req, res, next) {
     try {
         const token = String(req.query.token ?? "USDC").toUpperCase();
         if (token === "USDC") {
-            return res.send(await leaderboardUsdcAggregate());
+            return res.send(await buildUsdcLeaderboard());
         }
         if (token === "KSM") {
-            return res.send(await leaderboardKsmAggregate());
+            return res.send(await buildKsmLeaderboard());
         }
         return res.status(400).send({ error: "unsupported token" });
     } catch (e) {
