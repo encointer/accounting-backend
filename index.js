@@ -41,6 +41,7 @@ const swaggerSpec = swaggerJSDoc(options);
  */
 
 async function main() {
+    console.log(`[boot] connecting to Encointer RPC: ${ENCOINTER_RPC}`);
     const wsProvider = new WsProvider(ENCOINTER_RPC);
     // Create our API with a default connection to the local node
     const api = await ApiPromise.create({
@@ -48,9 +49,13 @@ async function main() {
         signedExtensions: typesBundle.signedExtensions,
         types: typesBundle.types[0].types,
     });
+    console.log("[boot] Encointer API ready");
 
-    const assetHubProvider = new WsProvider("wss://kusama-asset-hub-rpc.polkadot.io");
+    const KAH_RPC = "wss://kusama-asset-hub-rpc.polkadot.io";
+    console.log(`[boot] connecting to KAH RPC: ${KAH_RPC}`);
+    const assetHubProvider = new WsProvider(KAH_RPC);
     const assetHubApi = await ApiPromise.create({ provider: assetHubProvider });
+    console.log("[boot] KAH API ready");
 
     const app = express();
     app.set("api", api);
