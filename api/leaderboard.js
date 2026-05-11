@@ -1,5 +1,5 @@
 import express from "express";
-import { encodeAddress } from "@polkadot/util-crypto";
+import { decodeAddress, encodeAddress } from "@polkadot/util-crypto";
 import db from "../db.js";
 import { getTreasuryByCid } from "../treasuryConfig.js";
 
@@ -31,6 +31,21 @@ function hexToKsmSs58(hex) {
         return encodeAddress(hex, KSM_SS58_PREFIX);
     } catch {
         return null;
+    }
+}
+
+/**
+ * Re-encode any ss58 address to Kusama prefix (2). Identity is keyed by public
+ * key, not prefix — so to collapse "same donor, different prefix" rows in the
+ * leaderboard we canonicalise every donor address before grouping. Returns the
+ * input unchanged on decode failure.
+ */
+function toCanonicalSs58(ss58) {
+    if (typeof ss58 !== "string") return ss58;
+    try {
+        return encodeAddress(decodeAddress(ss58), KSM_SS58_PREFIX);
+    } catch {
+        return ss58;
     }
 }
 
@@ -152,13 +167,14 @@ async function leaderboardUsdcTreasury(treasury) {
         const amt = toBigInt(e.data?.amount);
         const donor = await findCrossChainDonor(e, kahAccount);
         if (donor) {
-            const prev = crossChainByDonor.get(donor) ?? {
+            const key = toCanonicalSs58(donor);
+            const prev = crossChainByDonor.get(key) ?? {
                 count: 0,
                 totalRaw: 0n,
             };
             prev.count += 1;
             prev.totalRaw += amt;
-            crossChainByDonor.set(donor, prev);
+            crossChainByDonor.set(key, prev);
         } else {
             crossChainAnonymous.push({
                 timestamp: e.timestamp,
@@ -202,14 +218,17 @@ async function leaderboardUsdcTreasury(treasury) {
         ])
         .toArray();
 
-    // Merge same-chain + cross-chain into a single ranked donor list.
+    // Merge same-chain + cross-chain into a single ranked donor list, keyed
+    // by canonical (Kusama-prefix) ss58 so the same donor donating from both
+    // a Kusama-encoded and a Polkadot-encoded address collapses into one row.
     const donorMap = new Map();
     for (const r of sameChainAgg) {
         if (!r._id) continue;
-        donorMap.set(r._id, {
-            count: r.count,
-            totalRaw: BigInt(r.totalRaw),
-        });
+        const key = toCanonicalSs58(r._id);
+        const prev = donorMap.get(key) ?? { count: 0, totalRaw: 0n };
+        prev.count += r.count;
+        prev.totalRaw += BigInt(r.totalRaw);
+        donorMap.set(key, prev);
     }
     for (const [ss58, agg] of crossChainByDonor) {
         const prev = donorMap.get(ss58) ?? { count: 0, totalRaw: 0n };
@@ -328,12 +347,21 @@ async function leaderboardKsmFaucet(account, registryEntry) {
         ])
         .toArray();
 
-    const donors = sameChainAgg
-        .filter((r) => r._id)
-        .map((r) => ({
-            ss58: r._id,
-            count: r.count,
-            totalRaw: BigInt(r.totalRaw).toString(),
+    // Collapse same-key donors across prefixes by canonicalising to Kusama ss58.
+    const faucetDonorMap = new Map();
+    for (const r of sameChainAgg) {
+        if (!r._id) continue;
+        const key = toCanonicalSs58(r._id);
+        const prev = faucetDonorMap.get(key) ?? { count: 0, totalRaw: 0n };
+        prev.count += r.count;
+        prev.totalRaw += BigInt(r.totalRaw);
+        faucetDonorMap.set(key, prev);
+    }
+    const donors = [...faucetDonorMap.entries()]
+        .map(([ss58, v]) => ({
+            ss58,
+            count: v.count,
+            totalRaw: v.totalRaw.toString(),
         }))
         .sort((a, b) => {
             const d = BigInt(b.totalRaw) - BigInt(a.totalRaw);
