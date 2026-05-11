@@ -105,8 +105,15 @@ async function main() {
 
     app.use("/v1", v1);
 
-    app.listen(8081);
-    console.log("App started!");
+    const port = Number(process.env.PORT) || 8081;
+    const server = app.listen(port, () => {
+        const addr = server.address();
+        const boundPort = typeof addr === "object" && addr ? addr.port : port;
+        console.log(`App started! Listening on http://127.0.0.1:${boundPort}`);
+    });
+    server.on("error", (err) => {
+        console.error(`Failed to bind on port ${port}:`, err.message);
+    });
 }
 
 main().catch(console.error);
