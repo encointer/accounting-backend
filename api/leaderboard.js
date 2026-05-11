@@ -50,11 +50,58 @@ function toCanonicalSs58(ss58) {
 }
 
 /**
+ * Returns true if a `transferAssetsUsingTypeAndThen` args object targets the
+ * Kusama ecosystem (parents: 2, X2[GlobalConsensus(Kusama), Parachain(_)]).
+ */
+function isKusamaBound(args) {
+    const dest = args?.dest?.V5 || args?.dest?.V4;
+    const gc = dest?.interior?.X2?.[0]?.GlobalConsensus;
+    if (gc === "Kusama") return true;
+    if (gc && typeof gc === "object" && "Kusama" in gc) return true;
+    return false;
+}
+
+/**
+ * Yield every `polkadotXcm.transferAssetsUsingTypeAndThen`-like call args found
+ * inside an extrinsic. The dapp wraps the donation in `utility.batchAll` (to
+ * pre-swap USDC→DOT for bridge fees), so the source call may sit one level
+ * below the top-level extrinsic. Supports both nested utility.batch* and
+ * direct polkadotXcm.transferAssetsUsingTypeAndThen.
+ */
+function extractTutCalls(extrinsic) {
+    if (
+        extrinsic.section === "polkadotXcm" &&
+        extrinsic.method === "transferAssetsUsingTypeAndThen"
+    ) {
+        return [extrinsic.args];
+    }
+    if (
+        extrinsic.section === "utility" &&
+        (extrinsic.method === "batch" ||
+            extrinsic.method === "batchAll" ||
+            extrinsic.method === "forceBatch")
+    ) {
+        const calls = extrinsic.args?.calls;
+        if (!Array.isArray(calls)) return [];
+        return calls
+            .filter(
+                (c) =>
+                    c?.section === "polkadotXcm" &&
+                    c?.method === "transferAssetsUsingTypeAndThen",
+            )
+            .map((c) => c.args);
+    }
+    return [];
+}
+
+/**
  * Match a cross-chain KAH `foreignAssets.Deposited` event back to its source
- * PAH `transferAssetsUsingTypeAndThen` extrinsic by scanning DepositAsset
- * beneficiaries within the bridge delivery window.
+ * PAH extrinsic by scanning DepositAsset beneficiaries within the bridge
+ * delivery window. Looks at direct `polkadotXcm.transferAssetsUsingTypeAndThen`
+ * AND `utility.batch*`-wrapped calls (the dapp's actual pattern when an
+ * upfront USDC→DOT fee swap is needed).
  *
- * Returns the donor ss58 (signer of the PAH extrinsic) if found, else null.
+ * Returns the donor ss58 (top-level signer of the PAH extrinsic) if found.
  */
 async function findCrossChainDonor(dep, treasuryKahSs58) {
     const t = dep.timestamp;
@@ -62,45 +109,75 @@ async function findCrossChainDonor(dep, treasuryKahSs58) {
     const candidates = await db.indexerAssetHubPolkadot
         .collection("extrinsics")
         .find({
-            section: "polkadotXcm",
-            method: "transferAssetsUsingTypeAndThen",
             success: true,
             timestamp: { $gte: t - BRIDGE_DELIVERY_WINDOW_MS, $lte: t + 60_000 },
             $or: [
-                { "args.dest.V4.interior.X2.0.GlobalConsensus": "Kusama" },
-                { "args.dest.V5.interior.X2.0.GlobalConsensus": "Kusama" },
                 {
-                    "args.dest.V4.interior.X2.0.GlobalConsensus.Kusama": {
-                        $exists: true,
-                    },
+                    section: "polkadotXcm",
+                    method: "transferAssetsUsingTypeAndThen",
                 },
                 {
-                    "args.dest.V5.interior.X2.0.GlobalConsensus.Kusama": {
-                        $exists: true,
+                    section: "utility",
+                    method: {
+                        $in: ["batch", "batchAll", "forceBatch"],
                     },
+                    "args.calls.section": "polkadotXcm",
+                    "args.calls.method": "transferAssetsUsingTypeAndThen",
                 },
             ],
         })
         .toArray();
 
     for (const x of candidates) {
-        const xcm =
-            x.args?.custom_xcm_on_dest?.V5 || x.args?.custom_xcm_on_dest?.V4;
-        if (!Array.isArray(xcm)) continue;
-        for (const ins of xcm) {
-            const dep2 = ins?.DepositAsset;
-            if (!dep2) continue;
-            const benHex = dep2.beneficiary?.interior?.X1?.[0]?.AccountId32?.id;
-            const benSs58 = hexToKsmSs58(benHex);
-            if (benSs58 !== treasuryKahSs58) continue;
-            const definite = dep2.assets?.Definite;
-            if (!Array.isArray(definite)) continue;
-            for (const a of definite) {
-                const fung = a?.fun?.Fungible;
-                if (fung == null) continue;
-                const srcAmt = toBigInt(fung);
-                const slack = (srcAmt * BRIDGE_FEE_TOLERANCE_PCT) / 100n;
-                if (srcAmt >= depAmount && srcAmt - depAmount <= slack) {
+        const inner = extractTutCalls(x);
+        for (const args of inner) {
+            if (!isKusamaBound(args)) continue;
+            // Total source-side amount being transferred (used as upper bound
+            // for Wild deposit attribution).
+            const totalAssets =
+                args?.assets?.V5 || args?.assets?.V4 || [];
+            const totalSrcAmt = totalAssets.reduce((acc, a) => {
+                const f = a?.fun?.Fungible;
+                return f == null ? acc : acc + toBigInt(f);
+            }, 0n);
+
+            const xcm =
+                args?.custom_xcm_on_dest?.V5 ||
+                args?.custom_xcm_on_dest?.V4;
+            if (!Array.isArray(xcm)) continue;
+            for (const ins of xcm) {
+                const dep2 = ins?.DepositAsset;
+                if (!dep2) continue;
+                const benHex =
+                    dep2.beneficiary?.interior?.X1?.[0]?.AccountId32?.id;
+                const benSs58 = hexToKsmSs58(benHex);
+                if (benSs58 !== treasuryKahSs58) continue;
+
+                // Definite: amount-bound check (avoids attributing a tiny
+                // unrelated source to a large destination inflow).
+                const definite = dep2.assets?.Definite;
+                if (Array.isArray(definite)) {
+                    for (const a of definite) {
+                        const fung = a?.fun?.Fungible;
+                        if (fung == null) continue;
+                        const srcAmt = toBigInt(fung);
+                        const slack =
+                            (srcAmt * BRIDGE_FEE_TOLERANCE_PCT) / 100n;
+                        if (
+                            srcAmt >= depAmount &&
+                            srcAmt - depAmount <= slack
+                        ) {
+                            return x.signer?.Id ?? null;
+                        }
+                    }
+                }
+
+                // Wild: "deposit residue to this beneficiary". The exact amount
+                // is computed at destination after BuyExecution + earlier
+                // Definite deposits. Match on beneficiary alone, but require
+                // the source's total transferred amount to be plausible
+                // (≥ depAmount, otherwise it can't be the source).
+                if (dep2.assets?.Wild && totalSrcAmt >= depAmount) {
                     return x.signer?.Id ?? null;
                 }
             }
