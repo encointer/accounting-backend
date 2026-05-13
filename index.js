@@ -3,7 +3,6 @@ import typesBundle from "./typesBundle.js";
 import express from "express";
 import { ENCOINTER_RPC } from "./consts.js";
 import v1 from "./api/v1.js";
-import cors from "cors";
 import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 import cookieSession from "cookie-session";
@@ -74,7 +73,16 @@ async function main() {
 
     app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-    var whitelist = [
+    // Two-tier CORS:
+    //   * Trusted origins (the official dapp + accounting frontend + local dev)
+    //     get full credentials support — required for session-cookie auth on
+    //     admin routes.
+    //   * Any other origin (IPFS gateways, self-hosted kubo on localhost,
+    //     custom domains, ...) gets anonymous read-only access via `*`.
+    //     The browser refuses to send credentials when Allow-Origin is `*` and
+    //     Allow-Credentials is absent, so session-protected endpoints remain
+    //     inaccessible from untrusted origins regardless of the wildcard.
+    var trustedOrigins = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5173",
@@ -82,18 +90,26 @@ async function main() {
         "https://accounting.encointer.org",
         "https://dapp.encointer.org",
     ];
-    var corsOptions = {
-        credentials: true,
-        origin: function (origin, callback) {
-            if (!origin || whitelist.indexOf(origin) !== -1) {
-                callback(null, true);
-            } else {
-                callback(new Error("Not allowed by CORS"));
-            }
-        },
-        optionsSuccessStatus: 200, // some legacy browsers (IE11, various SmartTVs) choke on 204
-    };
-    app.use(cors(corsOptions));
+    app.use(function (req, res, next) {
+        var origin = req.headers.origin;
+        if (origin && trustedOrigins.indexOf(origin) !== -1) {
+            res.setHeader("Access-Control-Allow-Origin", origin);
+            res.setHeader("Access-Control-Allow-Credentials", "true");
+            res.setHeader("Vary", "Origin");
+        } else {
+            res.setHeader("Access-Control-Allow-Origin", "*");
+        }
+        res.setHeader(
+            "Access-Control-Allow-Methods",
+            "GET,POST,OPTIONS,DELETE,PUT,PATCH",
+        );
+        res.setHeader(
+            "Access-Control-Allow-Headers",
+            "Content-Type,Authorization",
+        );
+        if (req.method === "OPTIONS") return res.sendStatus(200);
+        next();
+    });
 
     app.use(express.json());
     app.use(express.urlencoded());
