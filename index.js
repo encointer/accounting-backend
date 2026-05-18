@@ -105,7 +105,8 @@ async function main() {
         );
         res.setHeader(
             "Access-Control-Allow-Headers",
-            "Content-Type,Authorization",
+            req.headers["access-control-request-headers"] ||
+                "Content-Type,Authorization",
         );
         if (req.method === "OPTIONS") return res.sendStatus(200);
         next();
